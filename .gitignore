@@ -1,0 +1,6 @@
+# Cache de l'éditeur Godot
+.godot/
+*.import
+
+# Moteur Godot (176 Mo) : à copier localement dans Godot/ pour que les .bat fonctionnent
+Godot/
