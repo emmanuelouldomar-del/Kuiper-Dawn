@@ -30,6 +30,9 @@ images/                captures des vues (k240_jeu_*, k240_grand_*, k240_petit_*
 Lancer le jeu.bat      lance Godot\Godot_v4.7.2-stable_win64.exe --path .
 Ouvrir dans Godot.bat  idem avec -e (éditeur)
 Godot/                 (non versionné, .gitignore) : y copier l'exe Godot 4.7.2 pour que les .bat marchent
+build.ps1 / build.bat  système de build (export Godot), voir §5 bis
+export_presets.cfg     presets d'export « Windows » et « Linux »
+build/, dist/          sorties du build (non versionnées)
 ```
 
 ## 3. `main.gd` — le monde
@@ -116,6 +119,17 @@ Panneaux façon bande dessinée (`bd_panel`, `bd_label`) : statistiques de la ba
 - Toute modification de la forme ou de la hauteur du sol doit être faite **à la fois** dans `main.gd` (`hdisp`, `gp`, `shape_raw`, `relief_m`…) et dans `shaders/terrain.gdshader`.
 - **Garder l'éditeur Godot fermé pendant que Claude modifie les fichiers** (consigne du LISEZ-MOI d'origine), sinon l'éditeur risque d'écraser les changements.
 - Pour vérifier qu'un script se charge sans erreur, sans fenêtre : `Godot_v4.7.2-stable_win64_console.exe --headless --path . --quit` (la version console est dans `F:\Projet-K240\Godot\`).
+
+## 5 bis. Build
+- **`build.ps1`** (PowerShell 5.1 compatible, messages sans accents pour éviter les problèmes d'encodage) ; **`build.bat`** (cmd) et **`build.sh`** (bash) l'appellent avec `-ExecutionPolicy Bypass` et lui transmettent les arguments.
+- L'utilisateur travaille souvent dans un terminal **MSYS2 UCRT64 (bash)** : lui donner les commandes en syntaxe bash (`./build.sh ...`), pas `.\build.ps1`.
+- Paramètres : `-Platform windows|linux|all` (par défaut windows), `-DebugBuild`, `-InstallTemplates`, `-NoZip`, `-Check`, `-Clean`, `-Godot <exe>`.
+- Étapes : recherche de Godot (`-Godot`, `$env:GODOT`, `.\Godot\`, `F:\Projet-K240\Godot\`, PATH), lecture de la version (`--version` → `4.7.2.stable`), `--headless --import` (crée `.godot/`), vérification des modèles d'export dans `%APPDATA%\Godot\export_templates\4.7.2.stable\` (téléchargement GitHub `.tpz` si `-InstallTemplates`), `--export-release|--export-debug "<preset>" build\<plateforme>\...`, puis zip dans `dist\K240-<config/version>-<plateforme>.zip`.
+- `export_presets.cfg` : `embed_pck=true` (un seul exécutable), `include_filter="terrain/*.bin"` (**indispensable** : ces fichiers sont lus par `FileAccess` et non importés comme ressources), `exclude_filter` = images, build, dist, Godot, tools.
+- Version du jeu : `config/version` dans `project.godot` (0.1.0 au départ).
+- Après l'export Windows, le script **lance l'exécutable produit** (`--headless --quit-after 120`) et échoue en cas d'erreur.
+- **Piège connu** : `application/modify_resources=true` (écriture de l'icône et des infos de version dans l'exe) produisait un exe **invalide** (« n'est pas une application Win32 valide »), sans pack de données intégré. Ce réglage est donc à `false`. Pour ajouter une icône plus tard, il faudra tester à nouveau.
+- État au 2026-11-14 : modèles d'export 4.7.2 installés dans `%APPDATA%\Godot\export_templates\4.7.2.stable\`. Build Windows release **testé de bout en bout** : `build\windows\K240.exe` (≈ 112 Mo, pack intégré), qui démarre sans erreur, et `dist\K240-0.1.0-windows.zip` (≈ 42 Mo). Le preset Linux n'a pas été testé.
 
 ## 6. Historique et origine
 - Le projet a été développé côté **Claude Desktop** dans `F:\Projet-K240` (sans git) : jeu `K240-jeu` + prototypes `K240-v2` (petite planète, style Planetary Annihilation), `K240-coupe` (vue en coupe cartoon), `K240-base` (base réaliste, 10 vues), `K240-styles` (10 styles graphiques), `K240-Godot` (1re version). Le moteur s'y trouve aussi : `F:\Projet-K240\Godot\Godot_v4.7.2-stable_win64.exe` (+ `_console.exe`).
