@@ -1,12 +1,15 @@
 extends Node3D
-## K-240 — base minière réaliste sur un grand astéroïde (rayon ~20 km, 1 unité = 1 m).
-## Jeu K-240 en style minimaliste & géométrique (façon Monument Valley). Touches 1…6 : points de vue · S : changer de filtre · souris : caméra libre · Échap : quitter.
+## K-240 — le monde : astéroïde, base minière, caméra, vues, filtres et interface (1 unité = 1 m).
+## Style minimaliste & géométrique (façon Monument Valley). La bataille elle-même est dans battle.gd.
+## Astéroïde tiré au hasard à chaque partie : rayon RC ≈ 200–510 m, forme patate / allongée / binaire.
+## Touches 1…8 : points de vue · S : filtre · +/- : vitesse · Espace : pause · F : plein écran · Échap : quitter.
 ## Structure du fichier :
-##   terrain (tuile précalculée terrain/*.bin, 2 échelles + courbure)
+##   forme et relief de l'astéroïde, projection plan -> sphère (gp, alt, up_at, los_hit)
+##   terrain (tuile précalculée terrain/*.bin, 2 échelles, enroulée sur la sphère)
 ##   ciel, soleil, Terre
 ##   base : moyeu + antenne, tubes, dôme géodésique, habitats, pas de tir + fusées,
-##          panneaux solaires, chantier naval, excavatrices + poussière, routes, rochers
-##   VUES : liste des 10 points de vue (caméra, soleil, état des fusées)
+##          panneaux solaires, chantier naval, excavatrices + poussière, routes, rochers, massifs, cristaux
+##   VUES : points de vue (caméra, soleil, état des fusées) ; rendu en deux temps (scène -> filtre post) ; HUD
 
 const TILE := 512.0
 const BIG := 5.7
@@ -442,10 +445,6 @@ func strut(par: Node3D, mat: String, a: Vector3, b: Vector3, r: float) -> void:
 
 func tube_x(par: Node3D, mat: String, a: Vector3, L: float, r: float) -> MeshInstance3D:
 	return cyl(par, mat, a + Vector3(L * 0.5, 0, 0), r, L, -1.0, Vector3(0, 0, PI / 2), 32)
-
-
-func tube_z(par: Node3D, mat: String, a: Vector3, L: float, r: float) -> MeshInstance3D:
-	return cyl(par, mat, a + Vector3(0, 0, L * 0.5), r, L, -1.0, Vector3(PI / 2, 0, 0), 32)
 
 
 func lamp(par: Node3D, pos: Vector3, col: Color, energy := 4.0, rng_m := 25.0) -> void:
@@ -1570,200 +1569,6 @@ func build_pipeline() -> void:
 	get_viewport().size_changed.connect(func():
 		sv.size = get_viewport().size
 		post.set_shader_parameter("res", Vector2(sv.size)))
-
-
-# ================================================================ bataille de chars et d'infanterie
-func team_mat(team: String) -> String:
-	var k := "equipe_" + team
-	if not mats.has(k):
-		var m := StandardMaterial3D.new()
-		m.albedo_color = Color("2b5fc4") if team == "b" else Color("b8281c")
-		m.metallic = 0.3
-		m.roughness = 0.5
-		mats[k] = m
-	return k
-
-
-func tank(par: Node3D, x: float, z: float, yaw: float, team: String, fire: bool, wreck := false) -> void:
-	var g := Node3D.new()
-	var p := gp(x, z, 0.0)
-	g.position = p
-	g.rotation.y = yaw
-	par.add_child(g)
-	var body := "noir" if wreck else "acier_sombre"
-	for s in [-1.0, 1.0]:
-		box(g, "noir", Vector3(0, 0.6, s * 1.75), Vector3(7.4, 1.2, 1.0))
-		for k in 6:
-			cyl(g, "gris" if not wreck else "noir", Vector3(-3.0 + k * 1.2, 0.55, s * 1.75), 0.5, 1.05, -1.0, Vector3(PI / 2, 0, 0), 14)
-	box(g, body, Vector3(0, 1.45, 0), Vector3(7.0, 0.9, 3.2))
-	box(g, body, Vector3(3.2, 1.25, 0), Vector3(1.2, 0.8, 3.0), Vector3(0, 0, -0.5))
-	box(g, team_mat(team) if not wreck else "noir", Vector3(-0.5, 1.95, 1.62), Vector3(3.5, 0.3, 0.05))
-	box(g, team_mat(team) if not wreck else "noir", Vector3(-0.5, 1.95, -1.62), Vector3(3.5, 0.3, 0.05))
-	var tu := Node3D.new()
-	tu.position = Vector3(-0.6, 2.4, 0)
-	tu.rotation.y = rng.randf_range(-0.15, 0.15)
-	g.add_child(tu)
-	box(tu, body, Vector3(0, 0, 0), Vector3(3.6, 1.1, 2.7))
-	box(tu, body, Vector3(-1.9, 0.1, 0), Vector3(1.0, 0.9, 2.3))
-	box(tu, team_mat(team) if not wreck else "noir", Vector3(0.2, 0.58, 0), Vector3(1.2, 0.06, 1.2))
-	cyl(tu, body, Vector3(4.3, 0.1, 0), 0.22, 5.2, -1.0, Vector3(0, 0, PI / 2), 14)
-	cyl(tu, "noir", Vector3(6.9, 0.1, 0), 0.32, 0.6, -1.0, Vector3(0, 0, PI / 2), 14)
-	cyl(tu, "acier_sombre", Vector3(-1.2, 1.4, 0.9), 0.04, 2.0)
-	if fire and not wreck:
-		var fx := Node3D.new()
-		fx.position = Vector3(8.2, 0.1, 0)
-		tu.add_child(fx)
-		dust(fx, Vector3(0.8, 0, 0), 4.5, 0.95, Color(1.0, 0.62, 0.22))
-		sph(fx, "anneau", Vector3(0, 0, 0), 0.6)
-		dust(g, Vector3(10, 2.5, 0), 6.0, 0.35, Color(0.45, 0.43, 0.42))
-		var l := OmniLight3D.new()
-		l.light_color = Color("ffb060")
-		l.light_energy = 6.0
-		l.omni_range = 18.0
-		fx.add_child(l)
-	if wreck:
-		for k in 5:
-			dust(g, Vector3(rng.randf_range(-1, 1), 3.0 + k * 3.0, rng.randf_range(-1, 1)), 4.0 + k * 1.5, 0.55, Color(0.12, 0.11, 0.11))
-		dust(g, Vector3(0, 2.6, 0), 3.0, 0.9, Color(1.0, 0.5, 0.15))
-		var l2 := OmniLight3D.new()
-		l2.light_color = Color("ff8a3a")
-		l2.light_energy = 3.0
-		l2.omni_range = 14.0
-		l2.position = Vector3(0, 3, 0)
-		g.add_child(l2)
-
-
-func explosion(par: Node3D, x: float, z: float, s: float) -> void:
-	var p := gp(x, z, 1.0)
-	var g := Node3D.new()
-	g.position = p
-	par.add_child(g)
-	var m := StandardMaterial3D.new()
-	m.albedo_color = Color(0.1, 0.03, 0.0)
-	m.emission_enabled = true
-	m.emission = Color(1.0, 0.55, 0.15)
-	m.emission_energy_multiplier = 6.0
-	for k in 4:
-		var b := MeshInstance3D.new()
-		var sm := SphereMesh.new()
-		sm.radius = s * rng.randf_range(0.5, 0.9)
-		sm.height = sm.radius * 2.0
-		b.mesh = sm
-		b.material_override = m
-		b.position = Vector3(rng.randf_range(-s, s) * 0.6, s * (0.3 + k * 0.35), rng.randf_range(-s, s) * 0.6)
-		b.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		g.add_child(b)
-	for k in 7:
-		dust(g, Vector3(rng.randf_range(-s, s), s * (1.0 + k * 0.6), rng.randf_range(-s, s)), s * rng.randf_range(2.2, 3.5), 0.6, Color(0.18, 0.17, 0.16))
-	for k in 10:
-		var d := box(g, "noir", Vector3(rng.randf_range(-3, 3) * s, rng.randf_range(1, 5) * s, rng.randf_range(-3, 3) * s), Vector3.ONE * rng.randf_range(0.2, 0.5))
-		d.rotation = Vector3(rng.randf() * 3, rng.randf() * 3, 0)
-	var l := OmniLight3D.new()
-	l.light_color = Color("ff9a40")
-	l.light_energy = 10.0
-	l.omni_range = 30.0 * s / 2.0
-	l.position = Vector3(0, s, 0)
-	g.add_child(l)
-
-
-func soldiers(par: Node3D, cx: float, cz: float, n: int, team: String, yaw: float) -> void:
-	var cm := CapsuleMesh.new()
-	cm.radius = 0.28
-	cm.height = 1.8
-	var mm := MultiMesh.new()
-	mm.transform_format = MultiMesh.TRANSFORM_3D
-	mm.mesh = cm
-	mm.instance_count = n
-	var hm := SphereMesh.new()
-	hm.radius = 0.2
-	hm.height = 0.4
-	var mm2 := MultiMesh.new()
-	mm2.transform_format = MultiMesh.TRANSFORM_3D
-	mm2.mesh = hm
-	mm2.instance_count = n
-	for i in n:
-		var x := cx + (i % 8) * 1.8 + rng.randf_range(-0.5, 0.5)
-		var z := cz + (i / 8) * 2.0 + rng.randf_range(-0.5, 0.5)
-		var p := gp(x, z, 0.9)
-		var crouch := rng.randf() < 0.4
-		var b := Basis(Vector3.UP, yaw + rng.randf_range(-0.3, 0.3))
-		if crouch:
-			b = b.scaled(Vector3(1, 0.65, 1))
-			p.y -= 0.3
-		mm.set_instance_transform(i, Transform3D(b, p))
-		mm2.set_instance_transform(i, Transform3D(Basis(), p + Vector3(0, 0.95 if not crouch else 0.62, 0)))
-	var a := MultiMeshInstance3D.new()
-	a.multimesh = mm
-	a.material_override = M(team_mat(team))
-	par.add_child(a)
-	var h := MultiMeshInstance3D.new()
-	h.multimesh = mm2
-	h.material_override = M("acier_sombre")
-	par.add_child(h)
-
-
-func tracer_line(par: Node3D, a: Vector3, b: Vector3, col: Color) -> void:
-	var m := StandardMaterial3D.new()
-	m.albedo_color = Color(0, 0, 0)
-	m.emission_enabled = true
-	m.emission = col
-	m.emission_energy_multiplier = 8.0
-	var d := b - a
-	var L := minf(d.length() * 0.18, 9.0)
-	var mid := a + d * rng.randf_range(0.2, 0.8)
-	var t := MeshInstance3D.new()
-	var bm := BoxMesh.new()
-	bm.size = Vector3(0.08, 0.08, L)
-	t.mesh = bm
-	t.material_override = m
-	t.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	par.add_child(t)
-	t.position = mid
-	t.basis = Basis.looking_at(d, Vector3.UP)
-
-
-func battle(B: Node3D) -> void:
-	var W := Node3D.new()
-	B.add_child(W)
-	# tranchées et barricades
-	for row in [[200.0, "b"], [242.0, "r"]]:
-		for k in 30:
-			var x := -40.0 + k * 3.6
-			var z: float = row[0] + sin(k * 0.7) * 2.0
-			var bag := MeshInstance3D.new()
-			var cm := CapsuleMesh.new()
-			cm.radius = 0.35
-			cm.height = 1.3
-			bag.mesh = cm
-			bag.material_override = M("rouille")
-			bag.position = gp(x, z, 0.3)
-			bag.rotation = Vector3(0, 0.1, PI / 2)
-			W.add_child(bag)
-			if k % 3 == 0:
-				box(W, "acier_sombre", gp(x, z + 1.2, 0.6), Vector3(2.4, 1.2, 0.15), Vector3(0.2, rng.randf_range(-0.4, 0.4), 0))
-			if k % 4 == 1:
-				for c in 2:
-					strut(W, "noir", gp(x + c, z - 2.0, 0.0), gp(x + c + 0.6, z - 2.0, 1.4), 0.08)
-	# armées
-	for k in 9:
-		tank(W, -30 + k * 10.0, 182 + (k % 2) * 6.0, -PI / 2, "b", k % 2 == 0)
-	for k in 9:
-		tank(W, -28 + k * 10.0, 258 + (k % 2) * 6.0, PI / 2, "r", k % 3 != 1, k == 4 or k == 7)
-	tank(W, 12, 214, -PI / 2 + 0.6, "b", false, true)
-	for k in 4:
-		soldiers(W, -38 + k * 22.0, 192.0, 24, "b", -PI / 2)
-		soldiers(W, -36 + k * 22.0, 246.0, 24, "r", PI / 2)
-	for e in [[0.0, 226.0, 2.5], [25.0, 236.0, 3.0], [48.0, 214.0, 2.0], [-18.0, 232.0, 1.8], [62.0, 240.0, 2.6], [36.0, 205.0, 1.5]]:
-		explosion(W, e[0], e[1], e[2])
-	for k in 45:
-		var a := gp(rng.randf_range(-35, 70), rng.randf_range(185, 198), 1.5)
-		var b := gp(rng.randf_range(-35, 70), rng.randf_range(244, 262), 1.5)
-		if k % 2 == 0:
-			tracer_line(W, a, b, Color(0.45, 0.9, 1.0))
-		else:
-			tracer_line(W, b, a, Color(1.0, 0.5, 0.2))
-	for k in 18:
-		dust(W, gp(rng.randf_range(-40, 80), rng.randf_range(200, 250), rng.randf_range(2, 8)), rng.randf_range(10, 22), 0.25, Color(0.4, 0.38, 0.36))
 
 
 # ================================================================ interface façon bande dessinée

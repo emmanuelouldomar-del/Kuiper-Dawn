@@ -1,13 +1,11 @@
 extends Node3D
 ## Bataille de formations à l'échelle réelle (mètres).
-## Une unité = une formation : 200 fusiliers, 80 lance-flammes, 30 robots de soutien ou 8 chars.
+## Une unité = une formation : 60 fusiliers, 24 lance-flammes, 12 robots de soutien ou 4 chars (voir KIND).
 ## Soldat 1,85 m · robot 2,4 m (+30 %) · char ~9 m.
 ## Les soldats sont dessinés par instanciation (MultiMesh) avec 4 poses de marche + 1 pose arrêtée.
 
 var w
-var A: Vector3
 var PERP: Vector3
-var ARC: float
 var F_cover_tmp := PackedByteArray()
 var P0: Vector3
 var P1: Vector3
@@ -49,7 +47,6 @@ var DEAD := {}
 var dead_t := 0.0
 var TANKM := {}
 var FIGHTM := {}
-var unit_mesh := {}
 
 
 # ================================================================ cuisson des modèles (builder)
@@ -320,10 +317,6 @@ func fighter(C: Dictionary) -> void:
 		bx(x, 0.05, 0.1, 0.25, 0.25, 1.6, C.metal)
 	for x in [-0.3, 0.3]:
 		cy(x, 0, 1.85, 0.18, 0.2, C.visor, "z", true)
-
-
-func turret_aa(C: Dictionary) -> void:
-	cy(0, 0.4, 0, 1.1, 0.8, C.dark)
 
 
 # ================================================================ mise en place

@@ -15,8 +15,8 @@ Fichier de contexte pour les agents (Claude Code) qui travaillent sur ce dépôt
 ```
 project.godot          config (nom, main_scene, GL Compatibility, 1600x900, ombres 2048)
 main.tscn              scène minimale : un Node3D "Jeu" avec main.gd (tout est construit en code)
-main.gd    (~1860 l.)  monde : astéroïde, terrain, ciel, base, rochers, caméra, vues, post-traitement, HUD
-battle.gd  (~1470 l.)  simulation de bataille : formations, tirs, effets, aviation, rendu instancié
+main.gd    (~1670 l.)  monde : astéroïde, terrain, ciel, base, rochers, caméra, vues, post-traitement, HUD
+battle.gd  (~1460 l.)  simulation de bataille : formations, tirs, effets, aviation, rendu instancié
 shaders/
   terrain.gdshader     terrain enroulé sur la sphère (même calcul de hauteur que main.gd)
   post.gdshader        filtre de style plein écran (13 modes, touche S)
@@ -39,7 +39,7 @@ build/, dist/          sorties du build (non versionnées)
 
 ### Échelle et forme de l'astéroïde
 - 1 unité = 1 m. Le front de bataille fait `FRONT_LEN = 340` m.
-- **Taille aléatoire à chaque partie** : `TAILLE_K ∈ [1.2, 3.0]`, `RC = TAILLE_K × FRONT_LEN × 0.5`, soit un rayon d'environ 200 à 510 m (le commentaire d'en-tête « rayon ~20 km » est obsolète).
+- **Taille aléatoire à chaque partie** : `TAILLE_K ∈ [1.2, 3.0]`, `RC = TAILLE_K × FRONT_LEN × 0.5`, soit un rayon d'environ 200 à 510 m.
 - **Forme aléatoire** (`make_shape`) : `"patate"`, `"allongé"` ou `"binaire"`. Elle est définie par un ellipsoïde `SH_ELL`, 16 bosses gaussiennes (`SH_BLOBS`), et pour le binaire un second lobe : une sphère séparée (`LOBE_FUSED = false`, shader `lobe`). La calotte autour de la base et du front (angle `SH_TH0`) reste parfaitement sphérique, de rayon `RC`.
 - **Grand relief** (`make_relief`) : 10 cratères géants (seuls les 3 premiers sont creusés), 4 canyons et 3 falaises. Les canyons et les falaises sont **désactivés** (profondeur et hauteur forcées à 0). Le masque `relief_mask` exclut la zone de la base et du front.
 - **Projection** : le plan (x, z) est enroulé sur la sphère. La fonction clé est **`gp(x, z, lift)`**, qui renvoie la position 3D d'un point au sol (+ hauteur). Le centre de l'astéroïde est en `(0, -RC, 0)`, et la base est au pôle `(0, 0, 0)`.
@@ -90,8 +90,18 @@ Simulation à pas fixe ≤ 0,05 s × `tscale` (`war.step`), puis rendu `war.rend
 ### HUD (`build_hud` / `update_hud`)
 Panneaux façon bande dessinée (`bd_panel`, `bd_label`) : statistiques de la bataille et effectifs, via `war.stats()`.
 
-### Code mort ou ancien dans `main.gd`
-`tank`, `explosion`, `soldiers`, `tracer_line`, `battle(B)` (l.≈1575-1767) viennent de l'ancienne bataille statique et ne sont pas appelés : c'est `battle.gd` qui gère tout. L'en-tête du fichier (« rayon ~20 km », « 10 points de vue », « touches 1…6 ») est obsolète.
+### Code mort
+Nettoyé le 2026-11-14 :
+- dans `main.gd`, l'ancienne bataille statique (`battle`, `tank`, `explosion`, `soldiers`, `tracer_line`, `team_mat`) et `tube_z` ;
+- dans `battle.gd`, `turret_aa` et les variables `A`, `ARC`, `unit_mesh`.
+
+Les en-têtes des deux fichiers ont été corrigés.
+
+Restent volontairement, car ce sont des réglages désactivés et non du code mort :
+- les canyons et falaises de `make_relief`, de profondeur et hauteur 0, calculés aussi dans `terrain.gdshader` ;
+- la branche `LOBE_FUSED`.
+
+Les supprimer demande de modifier le shader en même temps.
 
 ## 4. `battle.gd` — la bataille
 
@@ -106,7 +116,7 @@ Panneaux façon bande dessinée (`bd_panel`, `bd_label`) : statistiques de la ba
 | `robot` robots de soutien | 12 | 90 | 1,8 | 120 m | |
 | `tank` chars | 4 | 500 | 3,0 | 220 m | obus (`shell`) |
 
-  `MULT[attaquant][cible]` donne l'efficacité contre chaque type : par exemple fusiliers ×0,03 contre les chars, chars ×1 contre les robots. *(Les commentaires d'en-tête « 200 fusiliers, 80 lance-flammes, 30 robots, 8 chars » sont obsolètes ; les valeurs de `KIND` font foi.)*
+  `MULT[attaquant][cible]` donne l'efficacité contre chaque type : par exemple fusiliers ×0,03 contre les chars, chars ×1 contre les robots. Les valeurs de `KIND` font foi.
 - **Apparition** : au plus 9 formations par camp. La probabilité d'apparition est biaisée par la position du front, ce qui rééquilibre la bataille. `mix()` tire le type. Une **vague** passe toutes les 60 s (`wave`).
 - **IA d'une formation** : ciblage de l'ennemi le plus proche dans sa portée (toutes les 0,5 s), **ligne de vue réelle** (`los_frac`, à travers le relief et les rochers), et 3 états : `march` (avance), `crawl` (rampe, s'il y a un danger ou une cible sans ligne de vue) et `fight` (tire). Les membres s'écartent les uns des autres (`separate`), et les pertes se font une par une (`kill_one`, `damage`), avec démembrement (`dismember`).
 - **Effets** : traceurs avec ricochets, obus, explosions (`boom`), fumée (`puff`, `tank_smoke`), sprites lumineux et épaves (`WR`).
