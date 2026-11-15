@@ -70,12 +70,12 @@ var dist := 100.0
 
 # point de vue : caméra, cible, élévation et azimut du soleil (°), direction de la Terre, état des fusées
 var VUES := [
-	{"nom": "Ligne de front", "mode": 12, "cam": Vector3(-30, 14, 236), "look": Vector3(20, 3, 300), "el": 38.0, "az": 205.0, "earth": Vector2(22, 12), "fus": "sol", "tint": Vector3(1.05, 1.0, 0.95)},
-	{"nom": "Vue tactique", "mode": 12, "cam": Vector3(-110, 150, 260), "look": Vector3(20, 0, 345), "el": 45.0, "az": 210.0, "earth": null, "fus": "sol", "tint": Vector3(1.05, 1.0, 0.95)},
-	{"nom": "La base", "mode": 12, "cam": Vector3(14, 20, 58), "look": Vector3(-2, 3, -2), "el": 30.0, "az": 215.0, "earth": Vector2(-30, 14), "fus": "sol", "tint": Vector3(1.05, 1.0, 0.95)},
-	{"nom": "Zone industrielle", "mode": 12, "cam": Vector3(100, 28, 6), "look": Vector3(50, 14, -38), "el": 25.0, "az": 160.0, "earth": Vector2(-20, 13), "fus": "sol", "tint": Vector3(1.05, 1.0, 0.95)},
-	{"nom": "Spatioport", "mode": 12, "cam": Vector3(46, 26, -34), "look": Vector3(-4, 8, -92), "el": 22.0, "az": 35.0, "earth": Vector2(-26, 26), "fus": "decollage", "tint": Vector3(1.05, 1.0, 0.95)},
-	{"nom": "Côté pirates", "mode": 12, "cam": Vector3(70, 16, 520), "look": Vector3(20, 3, 470), "el": 30.0, "az": 20.0, "earth": Vector2(-24, 12), "fus": "sol", "tint": Vector3(1.05, 1.0, 0.95)},
+	{"nom": "Ligne de front", "mode": 0, "cam": Vector3(-30, 14, 236), "look": Vector3(20, 3, 300), "el": 38.0, "az": 205.0, "earth": Vector2(22, 12), "fus": "sol", "tint": Vector3(1.05, 1.0, 0.95)},
+	{"nom": "Vue tactique", "mode": 0, "cam": Vector3(-110, 150, 260), "look": Vector3(20, 0, 345), "el": 45.0, "az": 210.0, "earth": null, "fus": "sol", "tint": Vector3(1.05, 1.0, 0.95)},
+	{"nom": "La base", "mode": 0, "cam": Vector3(14, 20, 58), "look": Vector3(-2, 3, -2), "el": 30.0, "az": 215.0, "earth": Vector2(-30, 14), "fus": "sol", "tint": Vector3(1.05, 1.0, 0.95)},
+	{"nom": "Zone industrielle", "mode": 0, "cam": Vector3(100, 28, 6), "look": Vector3(50, 14, -38), "el": 25.0, "az": 160.0, "earth": Vector2(-20, 13), "fus": "sol", "tint": Vector3(1.05, 1.0, 0.95)},
+	{"nom": "Spatioport", "mode": 0, "cam": Vector3(46, 26, -34), "look": Vector3(-4, 8, -92), "el": 22.0, "az": 35.0, "earth": Vector2(-26, 26), "fus": "decollage", "tint": Vector3(1.05, 1.0, 0.95)},
+	{"nom": "Côté pirates", "mode": 0, "cam": Vector3(70, 16, 520), "look": Vector3(20, 3, 470), "el": 30.0, "az": 20.0, "earth": Vector2(-24, 12), "fus": "sol", "tint": Vector3(1.05, 1.0, 0.95)},
 ]
 const BATTLE_A := Vector3(20, 0, 175)
 const BATTLE_B := Vector3(20, 0, 515)
@@ -635,12 +635,12 @@ func _ready() -> void:
 		ext = maxf(ext, shape_raw(rdir(dice)) / SH_POLE)
 	if SH_LOBE_R > 0.0:
 		ext = maxf(ext, (SH_LOBE_C.length() + SH_LOBE_R) / SH_POLE)
-	VUES.insert(0, {"nom": "Vue stratégique", "mode": 12, "abs": true, "cam": ctr + (upm * 3.0 + tow * 1.2 + Vector3(0.4, 0, 0)).normalized() * RC * (1.0 + 1.75 * ext), "look": ctr + upm * RC * 0.3, "el": 40.0, "az": 200.0, "earth": null, "fus": "sol", "tint": Vector3(1.05, 1.0, 0.95)})
+	VUES.insert(0, {"nom": "Vue stratégique", "mode": 0, "abs": true, "cam": ctr + (upm * 3.0 + tow * 1.2 + Vector3(0.4, 0, 0)).normalized() * RC * (1.0 + 1.75 * ext), "look": ctr + upm * RC * 0.3, "el": 40.0, "az": 200.0, "earth": null, "fus": "sol", "tint": Vector3(1.05, 1.0, 0.95)})
 	# recul adapté à l'étendue réelle de la forme (allongée, bilobée…)
 	var ext_l := ext
 	if SH_LOBE_R > 0.0:
 		ext_l = maxf(ext, (lobe_center() - ctr).length() / RC + lobe_radius() / RC)
-	VUES.append({"nom": "L'astéroïde entier", "mode": 12, "abs": true, "cam": ctr + Vector3(-1.6, 1.6, 2.6).normalized() * RC * (1.6 + 2.0 * ext_l), "look": ctr, "el": 30.0, "az": 210.0, "earth": null, "fus": "sol", "tint": Vector3(1.05, 1.0, 0.95)})
+	VUES.append({"nom": "L'astéroïde entier", "mode": 0, "abs": true, "cam": ctr + Vector3(-1.6, 1.6, 2.6).normalized() * RC * (1.6 + 2.0 * ext_l), "look": ctr, "el": 30.0, "az": 210.0, "earth": null, "fus": "sol", "tint": Vector3(1.05, 1.0, 0.95)})
 	rng.seed = 7
 	var args := OS.get_cmdline_user_args()
 	for i in args.size():
@@ -687,6 +687,7 @@ func _ready() -> void:
 	bridge.setup(self, colony)
 	if shots_dir != "" and not OS.get_cmdline_user_args().has("--passerelle"):
 		bridge.visible = false
+		layout_screen()
 	apply_view(0)
 	if shots_dir != "":
 		shot_i = 0
@@ -735,11 +736,11 @@ func M(name: String) -> Material:
 			m.albedo_color = Color("120c04"); m.emission_enabled = true; m.emission = Color("ffd08a"); m.emission_energy_multiplier = 6.0
 		# style militaire de la base (d'après les images de référence : combinaisons kaki, visières dorées, tuyaux)
 		"kaki":
-			m.albedo_color = Color("3b3b22"); m.metallic = 0.1; m.roughness = 0.9
+			m.albedo_color = Color("4c5158"); m.metallic = 0.55; m.roughness = 0.55
 		"kaki_clair":
-			m.albedo_color = Color("57553a"); m.metallic = 0.1; m.roughness = 0.9
+			m.albedo_color = Color("737a83"); m.metallic = 0.5; m.roughness = 0.5
 		"blinde":
-			m.albedo_color = Color("25272a"); m.metallic = 0.5; m.roughness = 0.65
+			m.albedo_color = Color("2c3036"); m.metallic = 0.6; m.roughness = 0.55
 		"orange_mil":
 			m.albedo_color = Color("c4600f"); m.metallic = 0.1; m.roughness = 0.6
 		"tuyau":
@@ -754,7 +755,7 @@ func M(name: String) -> Material:
 			m.albedo_color = Color("140800"); m.emission_enabled = true; m.emission = Color("ff7a1a"); m.emission_energy_multiplier = 5.0
 		# industrie et spatioport (béton gris, marquages de danger, vitres vertes et rouges)
 		"gris_dep":
-			m.albedo_color = Color("34373b"); m.metallic = 0.3; m.roughness = 0.8
+			m.albedo_color = Color("5a6068"); m.metallic = 0.5; m.roughness = 0.55
 		"tarmac":
 			m.albedo_color = Color("1f2124"); m.roughness = 0.95
 		"tarmac2":
@@ -766,7 +767,28 @@ func M(name: String) -> Material:
 		"rouge_vitre":
 			m.albedo_color = Color("100202"); m.emission_enabled = true; m.emission = Color("ff3a2a"); m.emission_energy_multiplier = 2.5
 	mats[name] = m
-	return m
+	return mats[name]
+
+
+# style low-poly : matériau opaque converti en facettes mates (les transparents restent standard)
+var LOWPOLY: Shader
+
+
+func lowpoly_from(m: StandardMaterial3D) -> Material:
+	if m.transparency != BaseMaterial3D.TRANSPARENCY_DISABLED:
+		return m
+	if LOWPOLY == null:
+		LOWPOLY = load("res://shaders/lowpoly.gdshader")
+	var s := ShaderMaterial.new()
+	s.shader = LOWPOLY
+	s.set_shader_parameter("albedo", m.albedo_color)
+	s.set_shader_parameter("metallic", m.metallic * 0.35)
+	s.set_shader_parameter("roughness", maxf(m.roughness, 0.65))
+	if m.emission_enabled:
+		s.set_shader_parameter("emission", m.emission)
+		s.set_shader_parameter("emission_energy", m.emission_energy_multiplier)
+	s.set_meta("lowpoly", true)
+	return s
 
 
 func make_smoke() -> Texture2D:
@@ -805,7 +827,8 @@ func cyl(par: Node3D, mat: String, pos: Vector3, r: float, h: float, r2 := -1.0,
 	c.top_radius = r
 	c.bottom_radius = r if r2 < 0 else r2
 	c.height = h
-	c.radial_segments = seg
+	c.radial_segments = mini(seg, 24)
+	c.rings = 1
 	return mi(par, c, M(mat), pos, rot)
 
 
@@ -814,12 +837,12 @@ func sph(par: Node3D, mat: String, pos: Vector3, r: float, hemi := false) -> Mes
 	s.radius = r
 	s.height = r if hemi else r * 2.0
 	s.is_hemisphere = hemi
-	s.radial_segments = 32
-	s.rings = 16
+	s.radial_segments = 24
+	s.rings = 12
 	return mi(par, s, M(mat), pos)
 
 
-func strut(par: Node3D, mat: String, a: Vector3, b: Vector3, r: float, seg := 8) -> MeshInstance3D:
+func strut(par: Node3D, mat: String, a: Vector3, b: Vector3, r: float, seg := 6) -> MeshInstance3D:
 	var d := b - a
 	var L := d.length()
 	if L < 0.001:
@@ -828,7 +851,8 @@ func strut(par: Node3D, mat: String, a: Vector3, b: Vector3, r: float, seg := 8)
 	c.top_radius = r
 	c.bottom_radius = r
 	c.height = L
-	c.radial_segments = seg
+	c.radial_segments = mini(seg, 10)
+	c.rings = 1
 	var m := mi(par, c, M(mat), (a + b) * 0.5)
 	var y := d / L
 	var x := y.cross(Vector3.UP if absf(y.y) < 0.95 else Vector3.RIGHT).normalized()
@@ -898,20 +922,13 @@ func dust(par: Node3D, pos: Vector3, size: float, alpha := 0.45, col := Color(0.
 
 # ================================================================ ciel, soleil, Terre
 func build_sky() -> void:
-	var W := 4096
-	var H := 2048
-	var img := Image.create(W, H, false, Image.FORMAT_RGB8)
-	img.fill(Color(0.004, 0.004, 0.006))
-	img.fill_rect(Rect2i(0, H / 2 + 200, W, H / 2 - 200), Color(0.03, 0.03, 0.03))
-	for i in 7000:
-		var x := rng.randi_range(0, W - 1)
-		var y := rng.randi_range(0, H / 2 - 4)
-		var b := rng.randf()
-		img.set_pixel(x, y, Color(0.8, 0.85, 1.0) * (0.1 + b * b * b * 0.9))
-	var pano := PanoramaSkyMaterial.new()
-	pano.panorama = ImageTexture.create_from_image(img)
+	# ciel procédural : nébuleuse colorée et étoiles (shaders/sky.gdshader)
+	var pano := ShaderMaterial.new()
+	pano.shader = load("res://shaders/sky.gdshader")
 	var sky := Sky.new()
 	sky.sky_material = pano
+	sky.process_mode = Sky.PROCESS_MODE_REALTIME
+	sky.radiance_size = Sky.RADIANCE_SIZE_32
 	env = Environment.new()
 	env.background_mode = Environment.BG_SKY
 	env.sky = sky
@@ -952,18 +969,49 @@ func build_sky() -> void:
 	fill_light.light_energy = 1.4
 	fill_light.shadow_enabled = false
 	add_child(fill_light)
+	# planète de fond : géante gazeuse à bandes et à anneaux (comme sur les images de référence)
 	earth = MeshInstance3D.new()
 	var sm := SphereMesh.new()
 	sm.radius = 1400
 	sm.height = 2800
-	sm.radial_segments = 96
-	sm.rings = 48
+	sm.radial_segments = 64
+	sm.rings = 32
 	earth.mesh = sm
-	var em := ShaderMaterial.new()
-	em.shader = load("res://shaders/planet.gdshader")
+	var bands := Image.create(8, 256, false, Image.FORMAT_RGB8)
+	var bn := FastNoiseLite.new()
+	bn.frequency = 0.05
+	for y in 256:
+		var v := bn.get_noise_1d(y) * 0.5 + 0.5 + 0.25 * sin(y * 0.21)
+		var c := Color("c79a6a").lerp(Color("f0d6a8"), clampf(v, 0.0, 1.0)).lerp(Color("8a5a3a"), clampf(sin(y * 0.09) * 0.5, 0.0, 1.0) * 0.5)
+		for x in 8:
+			bands.set_pixel(x, y, c)
+	var em := StandardMaterial3D.new()
+	em.albedo_texture = ImageTexture.create_from_image(bands)
+	em.roughness = 1.0
+	em.specular_mode = BaseMaterial3D.SPECULAR_DISABLED
 	earth.material_override = em
 	earth.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	earth.rotation = Vector3(0.35, 0.0, 0.28)
 	add_child(earth)
+	var ring := MeshInstance3D.new()
+	var rq := PlaneMesh.new()
+	rq.size = Vector2(1400 * 4.6, 1400 * 4.6)
+	ring.mesh = rq
+	var ri := Image.create(512, 1, false, Image.FORMAT_RGBA8)
+	var rn := FastNoiseLite.new()
+	rn.frequency = 0.08
+	for x in 512:
+		var r := x / 511.0
+		var a := smoothstep(0.55, 0.6, r) * (1.0 - smoothstep(0.96, 1.0, r)) * (0.35 + 0.65 * (rn.get_noise_1d(x) * 0.5 + 0.5))
+		if r > 0.78 and r < 0.81:
+			a *= 0.15
+		ri.set_pixel(x, 0, Color(0.85, 0.75, 0.62, a))
+	var rm := ShaderMaterial.new()
+	rm.shader = load("res://shaders/ring.gdshader")
+	rm.set_shader_parameter("prof", ImageTexture.create_from_image(ri))
+	ring.material_override = rm
+	ring.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	earth.add_child(ring)
 
 
 # ================================================================ maillage de l'astéroïde : cube-sphère
@@ -1140,7 +1188,7 @@ func float_noise_tex(n: int, freq: float) -> ImageTexture:
 func build_terrain() -> void:
 	var sh := load("res://shaders/terrain.gdshader")
 	var nt := float_noise_tex(256, 0.024)
-	# mailles d'environ 4 m
+	# mailles d’environ 6 m (style low-poly : facettes visibles)
 	var bodies := [[false, clampi(int(PI * 0.5 * RC / 4.0), 80, 190)]]
 	if SH_LOBE_R > 0.0 and not LOBE_FUSED:
 		bodies.append([true, clampi(int(PI * 0.5 * lobe_radius() / 4.0), 48, 140)])
@@ -1326,7 +1374,7 @@ func is_solid(m: MeshInstance3D) -> bool:
 	if not m.visible or m.mesh == null:
 		return false
 	var mt := m.material_override
-	if mt is ShaderMaterial:
+	if mt is ShaderMaterial and not mt.has_meta("lowpoly"):
 		return false
 	if mt is StandardMaterial3D:
 		var s: StandardMaterial3D = mt
@@ -1448,7 +1496,7 @@ func mesa_mesh(dice: RandomNumberGenerator) -> ArrayMesh:
 	for i in K:
 		rad.append(dice.randf_range(0.82, 1.0))
 	var rings := [[-0.7, 1.1], [0.0, 1.0], [0.55, 0.93], [0.76, 0.8], [0.86, 0.6]]
-	var cols := [Color("3a3b3f"), Color("4a4b50"), Color("5a5b60"), Color("706f72"), Color("8f8d8c")]
+	var cols := [Color("3a3836"), Color("4a4744"), Color("58554f"), Color("6a665f"), Color("85807a")]
 	var R: Array = []
 	for r in rings:
 		var ring: Array[Vector3] = []
@@ -1498,7 +1546,7 @@ func rock_mesh(dice: RandomNumberGenerator) -> ArrayMesh:
 		var v: Vector3 = vs[i] * float(off[key]) * sq
 		v.y = maxf(v.y, -0.25)
 		vs[i] = v
-	var cols := [Color("4a4b50"), Color("5d5e63"), Color("74757a"), Color("8f8f92")]
+	var cols := [Color("44413d"), Color("57534d"), Color("6d6962"), Color("8a857d")]
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	for t in range(0, idx.size(), 3):
@@ -1653,9 +1701,9 @@ func decor(dice: RandomNumberGenerator) -> void:
 		mm_add(ag[k], xa[k])
 	mm_add(rock_mesh(dice), xc, null, true)
 	var pm := pebble_mesh()
-	mm_add(pm, xp_o, toon_mat(Color("6d6a68")))
-	mm_add(pm, xp_b, toon_mat(Color("45454a")))
-	mm_add(pm, xg, toon_mat(Color("8e8c8a")))
+	mm_add(pm, xp_o, toon_mat(Color("6a6660")))
+	mm_add(pm, xp_b, toon_mat(Color("45423e")))
+	mm_add(pm, xg, toon_mat(Color("8c877f")))
 
 
 # ================================================================ la base : style militaire
@@ -3121,18 +3169,18 @@ func build_pipeline() -> void:
 # ================================================================ interface façon bande dessinée
 func bd_panel() -> StyleBoxFlat:
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color("f7efd8")
-	sb.border_color = Color("111111")
-	sb.set_border_width_all(3)
-	sb.set_corner_radius_all(4)
-	sb.set_content_margin_all(12)
-	sb.shadow_color = Color(0, 0, 0, 0.9)
-	sb.shadow_size = 0
-	sb.shadow_offset = Vector2(5, 5)
+	sb.bg_color = Color(0.03, 0.06, 0.1, 0.78)
+	sb.border_color = Color(0.37, 0.83, 1.0, 0.7)
+	sb.set_border_width_all(1)
+	sb.border_width_top = 2
+	sb.set_corner_radius_all(3)
+	sb.set_content_margin_all(10)
+	sb.shadow_color = Color(0, 0, 0, 0.5)
+	sb.shadow_size = 4
 	return sb
 
 
-func bd_label(size: int, col := Color("111111"), bold := 800) -> Label:
+func bd_label(size: int, col := Color("d8ecff"), bold := 600) -> Label:
 	var l := Label.new()
 	var f := SystemFont.new()
 	f.font_names = PackedStringArray(["Consolas", "DejaVu Sans Mono", "monospace"])
@@ -3155,7 +3203,7 @@ func build_hud() -> void:
 	var title := Label.new()
 	title.text = "K-240 · FRONT DE SURFACE"
 	title.add_theme_font_size_override("font_size", 34)
-	title.add_theme_color_override("font_color", Color("ffd23f"))
+	title.add_theme_color_override("font_color", Color("ffb84a"))
 	title.add_theme_color_override("font_outline_color", Color("111111"))
 	title.add_theme_constant_override("outline_size", 10)
 	title.position = Vector2(20, 44)

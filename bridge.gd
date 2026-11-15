@@ -56,12 +56,13 @@ var map: Control
 var map_sel := ""
 var end_shown := false
 # poste de pilotage : décor, moniteurs, écran agrandi
-var cockpit                  # cockpit.gd
-var picker: Control
-var overlay: Control
+var mons: Array = []          # moniteurs 2D (cadre, écran, bouton marche/arrêt)
+var hw := {}                 # boutons physiques de la console
+var console: Control
+var room: Control
+var room_vp: SubViewport
+var room_view: TextureRect
 var hint: Label
-var home_vp := {}
-var fz_from := Rect2()
 var th_ui: Theme
 var deco := {}
 var right2: Panel
@@ -85,7 +86,6 @@ var ops_sig := ""
 var lbl_diplo_log: Label
 var tabs2: TabContainer
 var dim: ColorRect
-var close_btn: Button
 var focused: Control = null
 var fz_t := 0.0
 var fz_dir := 0.0
@@ -109,37 +109,34 @@ func setup(world, colony) -> void:
 	size = Vector2(get_viewport().size)
 	get_viewport().size_changed.connect(func(): size = Vector2(get_viewport().size))
 	theme = th_ui
-	# poste de pilotage en 3D : rendu dans un monde à part, affiché en fond
-	cockpit = preload("res://cockpit.gd").new()
-	add_child(cockpit)
-	cockpit.setup(Vector2i(get_viewport().size))
-	var view := TextureRect.new()
-	view.texture = cockpit.cv.get_texture()
-	view.set_anchors_preset(Control.PRESET_FULL_RECT)
-	view.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	view.stretch_mode = TextureRect.STRETCH_SCALE
-	view.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(view)
-	# calque de sélection : clic sur un moniteur (le déployer) ou sur un bouton d'accoudoir
-	picker = Control.new()
-	picker.set_anchors_preset(Control.PRESET_FULL_RECT)
-	picker.mouse_filter = Control.MOUSE_FILTER_STOP
-	picker.gui_input.connect(pick_input)
-	add_child(picker)
-	# écrans de jeu, chacun dans le SubViewport de son moniteur
+	load_art()
+	# fond : salle de commandement en 2D (murs de métal, rivets, bandeau de titre, console du bas)
+	# fond en pixel art : dessiné dans un SubViewport à 1/PXR de la résolution, affiché en pixels nets
+	room_vp = SubViewport.new()
+	room_vp.transparent_bg = false
+	room_vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	room_vp.canvas_transform = Transform2D().scaled(Vector2.ONE / PXR)
+	add_child(room_vp)
+	room = Control.new()
+	room.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	room.draw.connect(draw_room)
+	room_vp.add_child(room)
+	room_view = TextureRect.new()
+	room_view.texture = room_vp.get_texture()
+	room_view.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	room_view.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	room_view.stretch_mode = TextureRect.STRETCH_SCALE
+	room_view.set_anchors_preset(Control.PRESET_FULL_RECT)
+	room_view.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(room_view)
+	# écrans de jeu, chacun dans un moniteur à cadre (bouton marche/arrêt, voyant, molettes)
 	left = screen_panel()
 	center = screen_panel(true)
 	right = screen_panel()
 	right2 = screen_panel()
 	diplo = screen_panel()
-	home_vp = {left: "left", center: "center", right: "right", right2: "right2", diplo: "lefttop"}
-	for p in home_vp:
-		p.theme = th_ui
-		var vp: SubViewport = cockpit.screens[home_vp[p]].vp
-		vp.add_child(p)
-		p.set_anchors_preset(Control.PRESET_FULL_RECT)
-		p.position = Vector2.ZERO
-		p.size = Vector2(vp.size)
+	for d in [[left, "left", "GESTION"], [center, "center", "VUE PRINCIPALE"], [right, "right", "RADAR"], [right2, "right2", "SPATIAL"], [diplo, "diplo", "DIPLOMATIE"]]:
+		add_monitor(d[1], d[2], d[0], false)
 	build_left()
 	build_center()
 	build_right()
@@ -148,13 +145,14 @@ func setup(world, colony) -> void:
 	build_ops()
 	build_survival()
 	build_small_screens()
-	for p in home_vp:
+	for p in [left, center, right, right2, diplo]:
 		var ov := Control.new()
 		ov.set_anchors_preset(Control.PRESET_FULL_RECT)
 		ov.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		ov.draw.connect(func(): draw_corners(ov))
 		p.add_child(ov)
-	# écran agrandi : fond assombri, puis l'écran, puis le bouton Réduire
+	build_console()
+	# écran agrandi : fond assombri sous le moniteur agrandi (le cadre du moniteur reste visible)
 	dim = ColorRect.new()
 	dim.color = Color(0, 0, 0, 0.0)
 	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -163,45 +161,416 @@ func setup(world, colony) -> void:
 		if e is InputEventMouseButton and e.pressed:
 			unfocus())
 	add_child(dim)
-	overlay = Control.new()
-	overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
-	overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(overlay)
-	close_btn = btn("✕  RÉDUIRE L’ÉCRAN  (Échap)", unfocus)
-	close_btn.add_theme_color_override("font_color", Color("ffd6d2"))
-	var cs: StyleBoxFlat = th_ui.get_stylebox("normal", "Button").duplicate()
-	cs.bg_color = Color(0.16, 0.03, 0.03, 0.92)
-	cs.border_color = Color("ff6b5f")
-	close_btn.add_theme_stylebox_override("normal", cs)
-	close_btn.visible = false
-	add_child(close_btn)
-	hint = lbl("Cliquez sur un moniteur pour l’agrandir · boutons des accoudoirs : vitesse, vue 3D, pilote automatique", Color(0.6, 0.85, 1.0, 0.75), 13)
-	hint.position = Vector2(16, 8)
+	hint = lbl("Cliquez sur un moniteur pour l’agrandir · bouton ⏻ : marche / arrêt de l’écran", Color(0.6, 0.85, 1.0, 0.8), 13)
 	add_child(hint)
 	resized.connect(do_layout)
 	do_layout()
 	refresh()
 
 
+# ---------------------------------------------------------------- moniteurs 2D
+const BZ_SIDE := 14.0
+const BZ_TOP := 14.0
+const BZ_BOT := 30.0
+const SMALL_DESIGN := Vector2(440, 320)
+const SCAN := preload("res://shaders/scan.gdshader")
+
+
+# moniteur : cadre (Panel) + écran (contenu) ; les petits écrans ont un contenu de taille fixe mis à l'échelle
+func add_monitor(id: String, title: String, content: Control, small: bool) -> Dictionary:
+	var mon := Panel.new()
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0, 0, 0, 0) if art_tex != null else Color("4c4f57")
+	sb.border_color = Color(0, 0, 0, 0)
+	sb.set_border_width_all(2)
+	sb.border_width_top = 3
+	sb.set_corner_radius_all(0)
+	sb.shadow_color = Color(0, 0, 0, 0.6)
+	sb.shadow_size = 0 if art_tex != null else 10
+	sb.shadow_offset = Vector2(0, 4)
+	mon.add_theme_stylebox_override("panel", sb)
+	mon.mouse_filter = Control.MOUSE_FILTER_STOP
+	var vp: SubViewport = null
+	var wp: Control = null
+	if art_tex != null:
+		# sur l'illustration : le moniteur est rendu dans sa propre texture, puis plaqué en perspective
+		# sur le quadrilatère du moniteur de l'image (draw_warp) ; il ne redevient un Control à plat qu'une fois agrandi
+		vp = SubViewport.new()
+		vp.transparent_bg = true
+		vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+		vp.gui_disable_input = true
+		add_child(vp)
+		mon.theme = th_ui
+		vp.add_child(mon)
+		wp = Control.new()
+		wp.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		wp.set_anchors_preset(Control.PRESET_FULL_RECT)
+		add_child(wp)
+	else:
+		add_child(mon)
+	var holder := Control.new()
+	holder.clip_contents = true
+	holder.mouse_filter = Control.MOUSE_FILTER_PASS
+	mon.add_child(holder)
+	if content.get_parent() != null:
+		content.reparent(holder, false)
+	else:
+		holder.add_child(content)
+	# verre cathodique : lueur verte phosphore et lignes de balayage par-dessus le contenu
+	content.modulate = Color(0.85, 1.0, 0.88)
+	var scan := ColorRect.new()
+	scan.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var scm := ShaderMaterial.new()
+	scm.shader = SCAN
+	scan.material = scm
+	holder.add_child(scan)
+	# écran éteint
+	var off := ColorRect.new()
+	off.color = Color("05070a")
+	off.visible = false
+	off.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	holder.add_child(off)
+	var m := {"id": id, "title": title, "mon": mon, "holder": holder, "content": content, "off": off, "scan": scan, "small": small, "home": Rect2(), "on": true}
+	mon.draw.connect(func(): draw_bezel(m))
+	if vp != null:
+		m.vp = vp
+		m.warp = wp
+		m.quad = PackedVector2Array()
+		wp.draw.connect(func(): draw_warp(m))
+	# bouton marche / arrêt
+	var pw := Button.new()
+	pw.text = "⏻"
+	pw.focus_mode = Control.FOCUS_NONE
+	pw.tooltip_text = "Marche / arrêt de l’écran"
+	pw.add_theme_font_size_override("font_size", 13)
+	var ps := StyleBoxFlat.new()
+	ps.bg_color = Color("2a2f38")
+	ps.border_color = Color("5a6270")
+	ps.set_border_width_all(1)
+	ps.set_corner_radius_all(9)
+	pw.add_theme_stylebox_override("normal", ps)
+	var ph: StyleBoxFlat = ps.duplicate()
+	ph.bg_color = Color("3a4250")
+	pw.add_theme_stylebox_override("hover", ph)
+	pw.add_theme_stylebox_override("pressed", ph)
+	pw.pressed.connect(func(): toggle_power(m))
+	mon.add_child(pw)
+	m.pw = pw
+	# bouton réduire (visible en plein écran)
+	var rd := Button.new()
+	rd.text = "✕ RÉDUIRE (Échap)"
+	rd.focus_mode = Control.FOCUS_NONE
+	rd.add_theme_font_size_override("font_size", 11)
+	var rs: StyleBoxFlat = ps.duplicate()
+	rs.bg_color = Color("3a1a1a")
+	rs.border_color = Color("ff6b5f")
+	rd.add_theme_stylebox_override("normal", rs)
+	rd.add_theme_stylebox_override("hover", rs)
+	rd.add_theme_color_override("font_color", Color("ffd6d2"))
+	rd.pressed.connect(unfocus)
+	rd.visible = false
+	mon.add_child(rd)
+	m.rd = rd
+	# clic sur un écran latéral : l'agrandir (l'écran principal se pilote directement, il s'agrandit avec ⛶)
+	if id != "center" or art_tex != null:
+		var c := Control.new()
+		c.mouse_filter = Control.MOUSE_FILTER_STOP
+		c.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+		c.tooltip_text = "Cliquer pour agrandir l’écran"
+		c.gui_input.connect(func(e):
+			if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:
+				focus_screen(m))
+		holder.add_child(c)
+		m.catcher = c
+	mons.append(m)
+	return m
+
+
+func mon_of(p: Control) -> Dictionary:
+	for m in mons:
+		if m.content == p:
+			return m
+	return {}
+
+
+func toggle_power(m: Dictionary) -> void:
+	m.on = not m.on
+	m.off.visible = not m.on
+	m.content.visible = m.on
+	if m.id == "center" and w != null:
+		w.layout_screen()
+	m.mon.queue_redraw()
+
+
+# cadre : marque, voyant, molettes, grilles d'aération
+func draw_bezel(m: Dictionary) -> void:
+	var mon: Panel = m.mon
+	var s := mon.size
+	var f := get_theme_default_font()
+	if m.get("bare", false):
+		return
+	# coque en relief : biseau éclairé en haut et à gauche, ombré en bas et à droite
+	mon.draw_rect(Rect2(0, 0, s.x, s.y), Color("4c4f57"))
+	mon.draw_rect(Rect2(0, 0, s.x, 3), Color("8a8e96"))
+	mon.draw_rect(Rect2(0, 0, 3, s.y), Color("74787f"))
+	mon.draw_rect(Rect2(0, s.y - 4, s.x, 4), Color("2a2c31"))
+	mon.draw_rect(Rect2(s.x - 4, 0, 4, s.y), Color("33363c"))
+	# bordure creusée autour de l'écran
+	var scr := Rect2(BZ_SIDE, BZ_TOP, s.x - BZ_SIDE * 2, s.y - BZ_TOP - BZ_BOT)
+	var rim := scr.grow(5)
+	mon.draw_rect(rim, Color("1c1d22"))
+	mon.draw_rect(Rect2(rim.position, Vector2(rim.size.x, 3)), Color("101115"))
+	mon.draw_rect(Rect2(rim.position.x, rim.end.y - 2, rim.size.x, 2), Color("5c6068"))
+	# halo vert de l'écran allumé
+	if m.on:
+		for k in 3:
+			mon.draw_rect(scr.grow(6 + k * 3), Color(0.25, 1.0, 0.5, 0.035), false, 3.0)
+	var y := s.y - BZ_BOT * 0.5
+	# voyant marche / arrêt (avec halo)
+	var led := Vector2(s.x - 50, y)
+	mon.draw_circle(led, 6.0, Color(0.4, 1.0, 0.6, 0.18) if m.on else Color(1.0, 0.3, 0.3, 0.18))
+	mon.draw_circle(led, 3.5, OK if m.on else BAD)
+	if s.x < 240.0:
+		return
+	# plaque de marque
+	var pl := Rect2(12, y - 7, 120, 14)
+	mon.draw_rect(pl, Color("3a3d44"))
+	mon.draw_rect(Rect2(pl.position.x, pl.end.y - 1, pl.size.x, 1), Color("6a6e76"))
+	mon.draw_string(f, Vector2(18, y + 4), "K-240 · " + m.title, HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color("aab2be"))
+	# molettes en relief
+	for k in 2:
+		var c := Vector2(s.x - 86 - k * 18, y)
+		mon.draw_circle(c, 6.5, Color("26282d"))
+		mon.draw_circle(c + Vector2(-0.5, -0.5), 5.5, Color("5a5e66"))
+		mon.draw_line(c, c + Vector2(0, -5).rotated(0.6 + k * 1.3), Color("d0d6de"), 1.5)
+	# grille d'aération
+	var vx := s.x * 0.5 - 30
+	for k in 6:
+		mon.draw_rect(Rect2(vx + k * 10, y - 5, 4, 10), Color("1e2025"))
+		mon.draw_rect(Rect2(vx + k * 10, y + 4, 4, 1), Color("6a6e76"))
+	if not m.on:
+		mon.draw_line(scr.position + Vector2(scr.size.x * 0.1, scr.size.y * 0.2), scr.position + Vector2(scr.size.x * 0.35, scr.size.y * 0.05), Color(1, 1, 1, 0.06), 6.0)
+
+
+# place un moniteur dans un rectangle de l'écran
+func place_mon(m: Dictionary, r: Rect2) -> void:
+	var mon: Panel = m.mon
+	mon.position = r.position
+	mon.size = r.size
+	# sur l'illustration : écran posé dans le moniteur de l'image, sans cadre ajouté (le cadre n'apparaît qu'en plein écran)
+	var bare: bool = art_tex != null and focused != m.content
+	m.bare = bare
+	var inner := Rect2(Vector2.ZERO, r.size) if bare else Rect2(BZ_SIDE, BZ_TOP, r.size.x - BZ_SIDE * 2, r.size.y - BZ_TOP - BZ_BOT)
+	var h: Control = m.holder
+	h.position = inner.position
+	h.size = inner.size
+	var c: Control = m.content
+	var design: Vector2 = SMALL_DESIGN if m.small else inner.size
+	if art_tex != null and not m.small:
+		# même mise en page qu'en plein écran, réduite pour tenir dans le petit moniteur de l'image
+		var V := size if size.x > 10 else Vector2(get_viewport().size)
+		design = Vector2(V.x * 0.94 - BZ_SIDE * 2, V.y * 0.92 - BZ_TOP - BZ_BOT)
+	if m.small or art_tex != null:
+		var k := minf(inner.size.x / design.x, inner.size.y / design.y)
+		c.size = design
+		c.scale = Vector2(k, k)
+		c.position = (inner.size - design * k) * 0.5
+	else:
+		c.scale = Vector2.ONE
+		c.position = Vector2.ZERO
+		c.size = inner.size
+	m.scan.position = Vector2.ZERO
+	m.scan.size = inner.size
+	m.off.position = Vector2.ZERO
+	m.off.size = inner.size
+	if m.has("catcher"):
+		m.catcher.position = Vector2.ZERO
+		m.catcher.size = inner.size
+	m.pw.visible = not bare
+	m.pw.position = Vector2(r.size.x - 38, r.size.y - BZ_BOT * 0.5 - 10)
+	m.pw.size = Vector2(26, 20)
+	m.rd.position = Vector2(r.size.x - 270, r.size.y - BZ_BOT * 0.5 - 10)
+	m.rd.size = Vector2(150, 20)
+	mon.queue_redraw()
+
+
 # ---------------------------------------------------------------- disposition
+func home_rects(V: Vector2) -> Dictionary:
+	# les moniteurs sont encastrés dans le cockpit : verrière au-dessus, piliers sur les côtés, pupitre en bas
+	var top := 66.0
+	var bot := 172.0
+	var gx := 26.0
+	var W := V.x - gx * 2.0
+	var H := V.y - top - bot
+	var g := 10.0
+	var lw := W * 0.25
+	var cw := W * 0.48
+	var rx := gx + lw + cw
+	var rw := W - lw - cw
+	var r := {}
+	r.left = Rect2(gx, top, lw - g * 0.5, H * 0.6 - g * 0.5)
+	r.diplo = Rect2(gx, top + H * 0.6 + g * 0.5, lw - g * 0.5, H * 0.4 - g * 0.5)
+	r.center = Rect2(gx + lw + g * 0.5, top, cw - g, H * 0.74 - g * 0.5)
+	var sy := top + H * 0.74 + g * 0.5
+	var sh := H * 0.26 - g * 0.5
+	var ids := ["sys", "energy", "alert", "log", "bot"]
+	var sw := (cw - g) / ids.size()
+	for i in ids.size():
+		r[ids[i]] = Rect2(gx + lw + g * 0.5 + i * sw + (g * 0.25 if i > 0 else 0.0), sy, sw - g * 0.5, sh)
+	r.right = Rect2(rx + g * 0.5, top, rw - g * 0.5, H * 0.45 - g * 0.5)
+	r.right2 = Rect2(rx + g * 0.5, top + H * 0.45 + g * 0.5, rw - g * 0.5, H * 0.55 - g * 0.5)
+	r.console = Rect2(16, V.y - 112, V.x - 32, 96)
+	# illustration fournie (art/cockpit.png) : positions des écrans lues dans art/cockpit.json (fractions de l'image)
+	if art_tex != null:
+		var ir := art_rect(V)
+		for id in art_map:
+			var a: Array = art_map[id]
+			if a.size() > 0 and a[0] is Array:
+				var q := art_quad(id, V)
+				var bb := Rect2(q[0], Vector2.ZERO)
+				for p in q:
+					bb = bb.expand(p)
+				r[id] = bb
+			else:
+				r[id] = Rect2(ir.position + Vector2(a[0], a[1]) * ir.size, Vector2(a[2], a[3]) * ir.size)
+	return r
+
+
+# quadrilatère d'un moniteur de l'illustration (coins haut-gauche, haut-droit, bas-droit, bas-gauche), en pixels de la fenêtre
+func art_quad(id: String, V: Vector2) -> PackedVector2Array:
+	var ir := art_rect(V)
+	var out := PackedVector2Array()
+	var a: Array = art_map.get(id, [])
+	if a.size() == 4 and a[0] is Array:
+		for c in a:
+			out.append(ir.position + Vector2(c[0], c[1]) * ir.size)
+	else:
+		var rr: Rect2 = Rect2(ir.position + Vector2(a[0], a[1]) * ir.size, Vector2(a[2], a[3]) * ir.size) if a.size() == 4 else Rect2()
+		out = PackedVector2Array([rr.position, Vector2(rr.end.x, rr.position.y), rr.end, Vector2(rr.position.x, rr.end.y)])
+	return out
+
+
+# passage d'un moniteur entre la texture plaquée en perspective et le Control à plat (écran agrandi, interactif)
+func set_flat(m: Dictionary, flat: bool) -> void:
+	var mon: Panel = m.mon
+	if flat and mon.get_parent() != self:
+		mon.reparent(self, false)
+		move_child(mon, -1)
+		m.warp.visible = false
+	elif not flat and mon.get_parent() != m.vp:
+		mon.reparent(m.vp, false)
+		m.warp.visible = true
+
+
+# projection du carré unité sur un quadrilatère (homographie), pour une vraie perspective
+func homography(q: PackedVector2Array) -> Array:
+	var d1 := q[1] - q[2]
+	var d2 := q[3] - q[2]
+	var sg := q[0] - q[1] + q[2] - q[3]
+	var den := d1.x * d2.y - d2.x * d1.y
+	var g := 0.0
+	var h := 0.0
+	if absf(den) > 1e-6:
+		g = (sg.x * d2.y - d2.x * sg.y) / den
+		h = (d1.x * sg.y - sg.x * d1.y) / den
+	var a := q[1] - q[0] + q[1] * g
+	var b := q[3] - q[0] + q[3] * h
+	return [a, b, q[0], g, h]
+
+
+func hmap(H: Array, u: float, v: float) -> Vector2:
+	return (H[0] * u + H[1] * v + H[2]) / (H[3] * u + H[4] * v + 1.0)
+
+
+# l'écran rendu dans sa texture, plaqué sur le quadrilatère par une grille de petites mailles
+func draw_warp(m: Dictionary) -> void:
+	var q: PackedVector2Array = m.quad
+	if q.size() != 4:
+		return
+	var tex: Texture2D = m.vp.get_texture()
+	var H := homography(q)
+	var N := 12
+	var holo: bool = m.id in ["left", "diplo", "right", "right2", "kron"]
+	var col := PackedColorArray([Color(1, 1, 1, 0.9 if holo and focused != m.content else 1.0)])
+	for j in N:
+		for i in N:
+			var u0 := float(i) / N
+			var u1 := float(i + 1) / N
+			var v0 := float(j) / N
+			var v1 := float(j + 1) / N
+			var pts := PackedVector2Array([hmap(H, u0, v0), hmap(H, u1, v0), hmap(H, u1, v1), hmap(H, u0, v1)])
+			var uvs := PackedVector2Array([Vector2(u0, v0), Vector2(u1, v0), Vector2(u1, v1), Vector2(u0, v1)])
+			m.warp.draw_polygon(pts, col, uvs, tex)
+
+
 func do_layout() -> void:
 	var V := size
 	if V.x < 10:
 		V = Vector2(get_viewport().size)
-	cockpit.resize(Vector2i(V))
-	close_btn.position = Vector2(V.x - 300, 6)
-	close_btn.size = Vector2(280, 30)
-	if focused != null:
-		var full := Rect2(V.x * 0.03, V.y * 0.06, V.x * 0.94, V.y * 0.88)
-		var t := ease(fz_t, -2.2)
-		focused.position = fz_from.position.lerp(full.position, t)
-		focused.size = fz_from.size.lerp(full.size, t)
+	var R := home_rects(V)
+	var pxr := 1.0 if art_tex != null else PXR
+	room_vp.size = Vector2i(maxi(1, int(V.x / pxr)), maxi(1, int(V.y / pxr)))
+	room_vp.canvas_transform = Transform2D().scaled(Vector2.ONE / pxr)
+	room_view.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR if art_tex != null else CanvasItem.TEXTURE_FILTER_NEAREST
+	room.size = V
+	var full := Rect2(V.x * 0.03, V.y * 0.04, V.x * 0.94, V.y * 0.92)
+	for m in mons:
+		var r: Rect2 = R[m.id]
+		m.home = r
+		if m.has("vp"):
+			# illustration : moniteur plaqué en perspective ; agrandi, les coins glissent vers le plein écran
+			var t := ease(fz_t, -2.2) if focused == m.content else 0.0
+			var flat: bool = focused == m.content and fz_t >= 1.0
+			set_flat(m, flat)
+			if flat:
+				place_mon(m, full)
+				continue
+			var q0 := art_quad(m.id, V)
+			var fq := PackedVector2Array([full.position, Vector2(full.end.x, full.position.y), full.end, Vector2(full.position.x, full.end.y)])
+			var q := PackedVector2Array()
+			var bb := Rect2(q0[0].lerp(fq[0], t), Vector2.ZERO)
+			for i in 4:
+				q.append(q0[i].lerp(fq[i], t))
+				bb = bb.expand(q[i])
+			# texture juste assez grande pour le quadrilatère (texte net, pas de scintillement)
+			var k := clampf(maxf(bb.size.x / full.size.x, bb.size.y / full.size.y) * 1.6, 0.12, 1.0)
+			m.vp.size = Vector2i(maxi(8, int(full.size.x * k)), maxi(8, int(full.size.y * k)))
+			m.vp.canvas_transform = Transform2D().scaled(Vector2(k, k))
+			place_mon(m, Rect2(Vector2.ZERO, full.size))
+			m.quad = q
+			m.warp.queue_redraw()
+			continue
+		if focused == m.content:
+			var t := ease(fz_t, -2.2)
+			r = Rect2(r.position.lerp(full.position, t), r.size.lerp(full.size, t))
+		place_mon(m, r)
+	if console != null:
+		console.position = R.console.position
+		console.size = R.console.size
+		if art_tex != null and hw.has("tab3d"):
+			# console étroite sur l'illustration : vue 3D et pilote auto sur une seconde rangée
+			var hb2: Control = console.get_child(0)
+			hb2.position = Vector2(8, 4)
+			for id in ["tab3d", "bot"]:
+				var b: Button = hw[id]
+				b.anchor_left = 0.0
+				b.anchor_right = 0.0
+				b.offset_top = 52
+				b.offset_bottom = 92
+			(hw["tab3d"] as Button).offset_left = 8
+			(hw["tab3d"] as Button).offset_right = 148
+			(hw["bot"] as Button).offset_left = 156
+			(hw["bot"] as Button).offset_right = 346
+	if hint != null:
+		hint.position = Vector2(V.x * 0.3, V.y - 168.0)
+		hint.visible = art_tex == null
 	if map != null:
 		map.position = Vector2(6, 34)
 		map.size = center.size - Vector2(12, 34 + 40)
 	if build_side != null:
 		build_side.position = Vector2(6, 34)
 		build_side.size = Vector2(SIDE_W, center.size.y - 34 - 40)
+	room.queue_redraw()
 	if w != null:
 		w.layout_screen()
 
@@ -212,75 +581,340 @@ func screen_rect_local() -> Rect2:
 	return Rect2(Vector2(6 + off, 34), center.size - Vector2(12 + off, 34 + 40))
 
 
-# zone de la vue 3D à l'écran, seulement quand l'écran principal est agrandi (sinon la souris ne pilote pas la caméra)
+# zone de la vue 3D à l'écran : la caméra se pilote directement dans l'écran principal (sauf si un autre écran est agrandi)
 func screen_rect() -> Rect2:
-	if focused != center or fz_t < 1.0 or fz_dir < 0.0:
+	if focused != null and focused != center:
+		return Rect2()
+	# sur l'illustration, l'écran principal est petit : la caméra ne se pilote qu'une fois l'écran agrandi
+	if art_tex != null and (focused != center or fz_t < 1.0):
+		return Rect2()
+	var m := mon_of(center)
+	if not m.is_empty() and not m.on:
 		return Rect2()
 	var r := screen_rect_local()
-	return Rect2(center.global_position + r.position, r.size)
+	var xf := center.get_global_transform()
+	return Rect2(xf * r.position, r.size * xf.get_scale())
 
 
-# ---------------------------------------------------------------- moniteurs : sélection et écran agrandi
-func pick_input(e: InputEvent) -> void:
+# ---------------------------------------------------------------- console du bas : boutons physiques
+func hw_btn(t: String, cb: Callable, col := Color("3a4250")) -> Button:
+	var b := Button.new()
+	b.text = t
+	b.focus_mode = Control.FOCUS_NONE
+	b.pressed.connect(cb)
+	var n := StyleBoxFlat.new()
+	n.bg_color = col
+	n.border_color = col.lightened(0.25)
+	n.set_border_width_all(1)
+	n.border_width_top = 2
+	n.set_corner_radius_all(6)
+	n.shadow_color = Color(0, 0, 0, 0.7)
+	n.shadow_size = 3
+	n.shadow_offset = Vector2(0, 3)
+	n.content_margin_left = 10
+	n.content_margin_right = 10
+	var h := n.duplicate()
+	h.bg_color = col.lightened(0.12)
+	var p := n.duplicate()
+	p.bg_color = col.darkened(0.2)
+	p.shadow_offset = Vector2(0, 1)
+	b.add_theme_stylebox_override("normal", h if false else n)
+	b.add_theme_stylebox_override("hover", h)
+	b.add_theme_stylebox_override("pressed", p)
+	b.add_theme_color_override("font_color", Color("e8eef5"))
+	b.add_theme_font_size_override("font_size", 14)
+	return b
+
+
+func build_console() -> void:
+	console = Control.new()
+	console.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(console)
+	var hb := HBoxContainer.new()
+	hb.position = Vector2(20, 22)
+	hb.add_theme_constant_override("separation", 8)
+	console.add_child(hb)
+	hb.add_child(lbl("TEMPS", Color("7f8c99"), 12))
+	for d in [["pause", "⏸", 0.0], ["x1", "×1", 1.0], ["x2", "×2", 2.0], ["x4", "×4", 4.0], ["x8", "×8", 8.0]]:
+		var sp: float = d[2]
+		var b := hw_btn(d[1], func(): set_speed(sp); refresh())
+		b.custom_minimum_size = Vector2(52, 40)
+		hb.add_child(b)
+		hw[d[0]] = b
+	# à droite du bureau (le clavier et les mains sont au centre) : vue 3D seule et pilote automatique
+	var tb := hw_btn("VUE 3D (Tab)", func(): w.toggle_bridge())
+	tb.anchor_left = 1.0
+	tb.anchor_right = 1.0
+	tb.offset_left = -350
+	tb.offset_right = -220
+	tb.offset_top = 22
+	tb.offset_bottom = 62
+	console.add_child(tb)
+	hw["tab3d"] = tb
+	var bb := hw_btn("🤖  PILOTE AUTO", func(): S.bot_toggle(); refresh(), Color("8a5a16"))
+	bb.custom_minimum_size = Vector2(190, 40)
+	bb.anchor_left = 1.0
+	bb.anchor_right = 1.0
+	bb.offset_left = -210
+	bb.offset_right = -20
+	bb.offset_top = 22
+	bb.offset_bottom = 62
+	console.add_child(bb)
+	hw["bot"] = bb
+
+
+func set_lit(id: String, on: bool) -> void:
+	if hw.has(id):
+		(hw[id] as Button).modulate = Color(1.5, 1.5, 1.3) if on else Color(1, 1, 1)
+
+
+# ---------------------------------------------------------------- cockpit 2D en pixel art (« repaire de hacker ») :
+# mur sombre, tuyaux, câbles, bras mécaniques des moniteurs, gadgets, néon ; au premier plan bureau, clavier et mains.
+# Le fond est dessiné dans un SubViewport à 1/PXR de la résolution puis agrandi en pixels nets.
+var cock_t := 0.0
+const PXR := 2.0
+
+
+func poly(pts: Array, col: Color) -> void:
+	room.draw_colored_polygon(PackedVector2Array(pts), col)
+
+
+func rivets(a: Vector2, b: Vector2, n: int) -> void:
+	for k in n:
+		room.draw_circle(a.lerp(b, (k + 0.5) / n), 2.0, Color("4a3a3e"))
+
+
+# câble qui pend (chaînette)
+func cable2(a: Vector2, b: Vector2, sag: float, wdt: float, col: Color) -> void:
+	var pts := PackedVector2Array()
+	for i in 17:
+		var k := i / 16.0
+		pts.append(a.lerp(b, k) + Vector2(0, sag * 4.0 * k * (1.0 - k)))
+	room.draw_polyline(pts, col.darkened(0.5), wdt + 2.0)
+	room.draw_polyline(pts, col, wdt)
+
+
+# ---- illustration de cockpit fournie par l'utilisateur (prioritaire sur le décor dessiné)
+var art_tex: Texture2D = null
+var art_map := {}            # id du moniteur -> [x, y, largeur, hauteur] en fractions de l'image
+
+
+func load_art() -> void:
+	if ResourceLoader.exists("res://art/cockpit.png"):
+		art_tex = load("res://art/cockpit.png")
+	if art_tex != null and FileAccess.file_exists("res://art/cockpit.json"):
+		var j = JSON.parse_string(FileAccess.get_file_as_string("res://art/cockpit.json"))
+		if j is Dictionary:
+			art_map = j
+
+
+# rectangle où l'image est affichée : elle couvre toute la fenêtre en gardant ses proportions (centrée)
+func art_rect(V: Vector2) -> Rect2:
+	var ts := art_tex.get_size()
+	var k := maxf(V.x / ts.x, V.y / ts.y)
+	var sz := ts * k
+	return Rect2((V - sz) * 0.5, sz)
+
+
+func draw_room() -> void:
+	var V := room.size
+	if V.x < 100.0:
+		return
+	if art_tex != null:
+		room.draw_texture_rect(art_tex, art_rect(V), false)
+		return
+	var f := get_theme_default_font()
+	# --- mur du fond : brun-rouge très sombre, panneaux et rivets
+	room.draw_rect(Rect2(Vector2.ZERO, V), Color("140c10"))
+	for i in 12:
+		for j in 7:
+			var r := Rect2(i * 140 + 3, j * 140 + 3, 134, 134)
+			room.draw_rect(r, Color("1c1216") if (i + j) % 2 == 0 else Color("180f13"))
+			rivets(r.position + Vector2(8, 8), Vector2(r.end.x - 8, r.position.y + 8), 4)
+	# tuyaux horizontaux et verticaux
+	for k in 3:
+		var y := 18.0 + k * 14.0
+		room.draw_rect(Rect2(0, y, V.x, 9), Color("3a2a2e"))
+		room.draw_line(Vector2(0, y + 2), Vector2(V.x, y + 2), Color("5a4246"), 2.0)
+	for k in 4:
+		var x := V.x * (0.08 + k * 0.28)
+		room.draw_rect(Rect2(x, 0, 10, V.y - 160), Color("2e2226"))
+		room.draw_line(Vector2(x + 2, 0), Vector2(x + 2, V.y - 160), Color("4a383c"), 2.0)
+	# --- bras mécaniques derrière chaque moniteur, jusqu'au mur
+	for m in mons:
+		var r: Rect2 = m.home
+		if r.size.x < 10.0:
+			continue
+		var c := r.get_center()
+		var anchor := Vector2(c.x + (c.x - V.x * 0.5) * 0.15, c.y - r.size.y * 0.6 - 10.0)
+		var mid := c.lerp(anchor, 0.5) + Vector2(r.size.x * 0.25 * signf(c.x - V.x * 0.5 + 0.01), 0)
+		for seg in [[c, mid], [mid, anchor]]:
+			room.draw_line(seg[0], seg[1], Color("2a2e36"), 14.0)
+			room.draw_line(seg[0], seg[1], Color("4a505c"), 4.0)
+		room.draw_circle(mid, 10.0, Color("3a3f4a"))
+		room.draw_circle(mid, 4.0, Color("8a92a0"))
+		room.draw_rect(Rect2(anchor - Vector2(14, 8), Vector2(28, 16)), Color("3a3f4a"))
+	# câbles rouges et violets qui pendent entre les moniteurs
+	var cols := [Color("8a1e34"), Color("5a2a7a"), Color("2a2a32"), Color("a02a3a")]
+	var sd := 5
+	for i in 16:
+		sd = (sd * 16807) % 2147483647
+		var a := Vector2(float(sd % 1000) / 1000.0 * V.x, 50.0 + float(sd % 37))
+		sd = (sd * 16807) % 2147483647
+		var b := Vector2(float(sd % 1000) / 1000.0 * V.x, 50.0 + float(sd % 53))
+		cable2(a, b, 60.0 + float(sd % 140), 3.0 + float(sd % 3), cols[i % 4])
+	# enseignes au néon (dessinées par-dessus les câbles), qui grésillent
+	var flick := 1.0 if fmod(cock_t * 0.8, 5.0) > 0.3 else (0.35 if sin(cock_t * 50.0) > 0.0 else 1.0)
+	room.draw_rect(Rect2(V.x - 214, 8, 196, 52), Color("1a1014"))
+	room.draw_string(f, Vector2(V.x - 200, 48), "K-240", HORIZONTAL_ALIGNMENT_LEFT, -1, 40, Color(1.0, 0.25, 0.75, flick))
+	room.draw_rect(Rect2(14, 10, 150, 34), Color("1a1014"))
+	room.draw_string(f, Vector2(22, 34), "KUIPER", HORIZONTAL_ALIGNMENT_LEFT, -1, 22, Color(0.3, 0.9, 1.0, 0.9 * flick))
+	# --- bureau au premier plan, en perspective (plateau qui s'élargit vers le bas)
+	var dy := V.y - 160.0
+	poly([Vector2(V.x * 0.06, dy + 8), Vector2(V.x * 0.94, dy + 8), Vector2(V.x, V.y), Vector2(0, V.y)], Color("2c2428"))
+	poly([Vector2(V.x * 0.06, dy + 8), Vector2(V.x * 0.94, dy + 8), Vector2(V.x * 0.945, dy + 14), Vector2(V.x * 0.055, dy + 14)], Color("4a3c40"))
+	room.draw_line(Vector2(V.x * 0.06, dy + 8), Vector2(V.x * 0.94, dy + 8), Color("6a5a5e"), 2.0)
+	# lueur verte des écrans sur le bureau
+	for k in 7:
+		room.draw_circle(Vector2(V.x * 0.5, dy + 10), 420.0 - k * 55.0, Color(0.2, 1.0, 0.45, 0.022))
+	# gadgets : boîtier à voyants, carte électronique, canette, câble enroulé, tasse
+	var gb := Rect2(V.x * 0.25, dy + 28, 100, 44)
+	room.draw_rect(gb, Color("3a3238"))
+	room.draw_rect(Rect2(gb.position, Vector2(gb.size.x, 4)), Color("5a4e54"))
+	room.draw_rect(Rect2(gb.position + Vector2(0, gb.size.y - 4), Vector2(gb.size.x, 4)), Color("221c20"))
+	for k in 5:
+		var on := fmod(cock_t * (0.6 + k * 0.3) + k, 1.8) < 1.1
+		var lc: Color = Color("5ff0a0") if k % 2 == 0 else Color("ff5a5a")
+		room.draw_rect(Rect2(gb.position + Vector2(10 + k * 17, 12), Vector2(10, 6)), lc if on else Color("2a1e22"))
+		if on:
+			room.draw_rect(Rect2(gb.position + Vector2(8 + k * 17, 10), Vector2(14, 10)), Color(lc.r, lc.g, lc.b, 0.25))
+	var pcb := Rect2(V.x * 0.665, dy + 34, 112, 52)
+	room.draw_rect(pcb, Color("1c3a24"))
+	room.draw_rect(pcb, Color("2e5a38"), false, 2.0)
+	for k in 8:
+		room.draw_rect(Rect2(pcb.position + Vector2(8 + k * 12, 8), Vector2(6, 10)), Color("c8b060"))
+		room.draw_line(pcb.position + Vector2(11 + k * 12, 18), pcb.position + Vector2(11 + k * 12, 44), Color("6ab070"), 1.0)
+	room.draw_rect(Rect2(pcb.position + Vector2(30, 24), Vector2(40, 18)), Color("15151a"))
+	var can := Rect2(V.x * 0.745, dy + 22, 24, 42)
+	room.draw_rect(can, Color("b8303e"))
+	room.draw_rect(Rect2(can.position + Vector2(4, 0), Vector2(5, can.size.y)), Color("e05060"))
+	room.draw_rect(Rect2(can.position, Vector2(can.size.x, 5)), Color("d8d8d8"))
+	for k in 3:
+		room.draw_arc(Vector2(V.x * 0.205, dy + 84), 24.0 + k * 6.0, 0, TAU, 20, Color("15151a"), 4.0)
+		room.draw_arc(Vector2(V.x * 0.205, dy + 82), 24.0 + k * 6.0, PI, TAU, 10, Color("3a3a44"), 1.0)
+	# clavier en perspective : trapèze, touches à dessus clair et face avant sombre, quelques touches de couleur
+	var kt := dy + 48.0
+	var kbt := kt + 96.0
+	var kl0 := V.x * 0.37
+	var kr0 := V.x * 0.63
+	var kl1 := V.x * 0.335
+	var kr1 := V.x * 0.665
+	poly([Vector2(kl0 - 6, kt - 6), Vector2(kr0 + 6, kt - 6), Vector2(kr1 + 8, kbt + 8), Vector2(kl1 - 8, kbt + 8)], Color("1e1e24"))
+	poly([Vector2(kl0, kt), Vector2(kr0, kt), Vector2(kr1, kbt), Vector2(kl1, kbt)], Color("3c3c46"))
+	var krows := 5
+	var kcols := 15
+	for r in krows:
+		var t0 := float(r) / krows
+		var t1 := float(r + 1) / krows
+		var y0 := lerpf(kt, kbt, t0) + 3.0
+		var y1 := lerpf(kt, kbt, t1) - 2.0
+		var l0 := lerpf(kl0, kl1, t0)
+		var r0 := lerpf(kr0, kr1, t0)
+		var l1 := lerpf(kl0, kl1, t1)
+		var r1 := lerpf(kr0, kr1, t1)
+		for k in kcols:
+			var a0 := lerpf(l0, r0, float(k) / kcols) + 2.0
+			var b0 := lerpf(l0, r0, float(k + 1) / kcols) - 2.0
+			var a1 := lerpf(l1, r1, float(k) / kcols) + 2.0
+			var b1 := lerpf(l1, r1, float(k + 1) / kcols) - 2.0
+			var key := Color("9a9aa6")
+			if (r == 0 and k < 2) or (r == 4 and (k == 0 or k == 14)):
+				key = Color("d0506a")
+			elif r == 1 and k == 13:
+				key = Color("4ac0a0")
+			elif (r + k) % 7 == 0:
+				key = Color("7a7a88")
+			var ym := lerpf(y0, y1, 0.72)
+			poly([Vector2(a0, y0), Vector2(b0, y0), Vector2(lerpf(b0, b1, 0.72), ym), Vector2(lerpf(a0, a1, 0.72), ym)], key)
+			poly([Vector2(lerpf(a0, a1, 0.72), ym), Vector2(lerpf(b0, b1, 0.72), ym), Vector2(b1, y1), Vector2(a1, y1)], key.darkened(0.45))
+			room.draw_line(Vector2(a0, y0), Vector2(b0, y0), key.lightened(0.25), 1.0)
+	# mains : gauche nue sur le clavier, droite gantée (gant sans doigts, bracelet lumineux)
+	draw_hand(Vector2(V.x * 0.44, kt + 40.0), false)
+	draw_hand(Vector2(V.x * 0.59, kt + 46.0), true)
+	# vignettage : coins assombris
+	for k in 10:
+		var a := 0.05
+		room.draw_rect(Rect2(0, 0, 18.0 + k * 14.0, V.y), Color(0, 0, 0, a))
+		room.draw_rect(Rect2(V.x - 18.0 - k * 14.0, 0, 18.0 + k * 14.0, V.y), Color(0, 0, 0, a))
+
+
+# main en pixel art : avant-bras effilé avec ombre, dos de main bombé, articulations, doigts arrondis, ongles
+func draw_hand(p: Vector2, gloved: bool) -> void:
+	var skin := Color("c8906c")
+	var skin_l := Color("e0aa84")
+	var skin_d := Color("8e5a40")
+	var glove := Color("26262e")
+	var glove_l := Color("3c3c48")
+	var s := 1.0 if gloved else -1.0
+	var base := p + Vector2(s * 90.0, 190.0)
+	# avant-bras : contour sombre, peau, reflet le long du bord éclairé
+	poly([p + Vector2(-30, 10), p + Vector2(30, 10), base + Vector2(48, 30), base + Vector2(-48, 30)], skin_d)
+	poly([p + Vector2(-25, 10), p + Vector2(25, 10), base + Vector2(40, 30), base + Vector2(-40, 30)], skin)
+	poly([p + Vector2(-s * 22 - 4, 12), p + Vector2(-s * 22 + 4, 12), base + Vector2(-s * 36 + 8, 30), base + Vector2(-s * 36 - 6, 30)], skin_l)
+	for k in 9:
+		var q := p.lerp(base, 0.2 + k * 0.08) + Vector2(-14 + (k % 3) * 12, 0)
+		room.draw_line(q, q + Vector2(3, 3), skin_d, 1.0)
+	if gloved:
+		# manchette du gant et bracelet lumineux
+		poly([p + Vector2(-32, 4), p + Vector2(32, 4), p + Vector2(36, 44), p + Vector2(-36, 44)], glove)
+		room.draw_rect(Rect2(p + Vector2(-36, 36), Vector2(72, 6)), Color(0.3, 0.9, 1.0))
+		room.draw_rect(Rect2(p + Vector2(-38, 33), Vector2(76, 12)), Color(0.3, 0.9, 1.0, 0.25))
+	# dos de la main, bombé (contour, aplat, reflet)
+	var back := glove if gloved else skin
+	var back_l := glove_l if gloved else skin_l
+	poly([p + Vector2(-34, -14), p + Vector2(34, -14), p + Vector2(30, 18), p + Vector2(-30, 18)], skin_d if not gloved else Color("15151a"))
+	poly([p + Vector2(-31, -12), p + Vector2(31, -12), p + Vector2(27, 15), p + Vector2(-27, 15)], back)
+	poly([p + Vector2(-20, -10), p + Vector2(14, -10), p + Vector2(10, -2), p + Vector2(-18, -2)], back_l)
+	# doigts recourbés : phalange (gant ou peau), articulation, bout arrondi avec ongle
+	for k in 4:
+		var x := -26.0 + k * 17.0
+		var fl := 22.0 - absf(k - 1.5) * 3.0
+		room.draw_rect(Rect2(p + Vector2(x, -14 - fl), Vector2(14, fl + 2)), Color("15151a") if gloved else skin_d)
+		room.draw_rect(Rect2(p + Vector2(x + 1, -14 - fl), Vector2(12, fl)), back)
+		room.draw_rect(Rect2(p + Vector2(x + 3, -12 - fl), Vector2(3, fl - 4)), back_l)
+		# bout du doigt (toujours nu), arrondi
+		var tip := p + Vector2(x + 7, -18 - fl)
+		room.draw_circle(tip, 7.0, skin_d)
+		room.draw_circle(tip + Vector2(0, 1), 6.0, skin)
+		room.draw_rect(Rect2(tip + Vector2(-3, -5), Vector2(6, 4)), skin_l)
+		room.draw_line(p + Vector2(x + 2, -14), p + Vector2(x + 12, -14), skin_d if not gloved else Color("15151a"), 1.0)
+	# pouce, replié sur le côté
+	var th := p + Vector2(-s * 34, -2)
+	poly([th + Vector2(0, -6), th + Vector2(-s * 18, -18), th + Vector2(-s * 22, -10), th + Vector2(-s * 4, 6)], skin_d)
+	poly([th + Vector2(0, -4), th + Vector2(-s * 16, -15), th + Vector2(-s * 19, -9), th + Vector2(-s * 3, 4)], skin)
+	room.draw_circle(th + Vector2(-s * 19, -14), 5.0, skin)
+
+
+# ---------------------------------------------------------------- écran agrandi (le cadre du moniteur reste visible)
+func focus_screen(m) -> void:
 	if focused != null:
 		return
-	if e is InputEventMouseMotion:
-		var h: Dictionary = cockpit.pick(e.position)
-		var on: bool = not h.is_empty() and (h.kind == "button" or home_id(h.id) != null)
-		picker.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND if on else Control.CURSOR_ARROW
-	elif e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:
-		var h: Dictionary = cockpit.pick(e.position)
-		if h.is_empty():
-			return
-		if h.kind == "screen":
-			var p = home_id(h.id)
-			if p != null:
-				focus_screen(p)
-		else:
-			press(h.id)
-
-
-func home_id(id: String):
-	for p in home_vp:
-		if home_vp[p] == id:
-			return p
-	return null
-
-
-# boutons des accoudoirs
-func press(id: String) -> void:
-	match id:
-		"pause":
-			set_speed(0.0)
-		"x1":
-			set_speed(1.0)
-		"x2":
-			set_speed(2.0)
-		"x4":
-			set_speed(4.0)
-		"x8":
-			set_speed(8.0)
-		"tab":
-			w.toggle_bridge()
-		"bot":
-			S.bot_toggle()
-	refresh()
-
-
-func focus_screen(p: Control) -> void:
-	if focused != null:
+	if m is Control:
+		m = mon_of(m)
+	if m.is_empty():
 		return
-	focused = p
+	focused = m.content
 	fz_dir = 1.0
 	fz_t = 0.0
-	fz_from = cockpit.project_rect(home_vp[p])
-	p.reparent(overlay, false)
-	p.set_anchors_preset(Control.PRESET_TOP_LEFT)
-	p.position = fz_from.position
-	p.size = fz_from.size
+	move_child(dim, -1)
+	if m.has("warp"):
+		move_child(m.warp, -1)
+	else:
+		move_child(m.mon, -1)
 	dim.mouse_filter = Control.MOUSE_FILTER_STOP
-	picker.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	close_btn.visible = true
+	if m.has("catcher"):
+		m.catcher.visible = false
+	m.rd.visible = true
 	hint.visible = false
 	do_layout()
 
@@ -289,26 +923,24 @@ func unfocus() -> void:
 	if focused == null:
 		return
 	fz_dir = -1.0
-	close_btn.visible = false
+	var m := mon_of(focused)
+	if not m.is_empty():
+		m.rd.visible = false
 
 
 func animate_focus(dt: float) -> void:
 	if focused == null:
 		return
-	fz_t = clampf(fz_t + fz_dir * dt / 0.35, 0.0, 1.0)
-	dim.color.a = 0.75 * fz_t
+	fz_t = clampf(fz_t + fz_dir * dt / 0.3, 0.0, 1.0)
+	dim.color.a = 0.78 * fz_t
 	do_layout()
 	if fz_dir < 0.0 and fz_t <= 0.0:
-		var p := focused
+		var m := mon_of(focused)
 		focused = null
-		var vp: SubViewport = cockpit.screens[home_vp[p]].vp
-		p.reparent(vp, false)
-		p.set_anchors_preset(Control.PRESET_FULL_RECT)
-		p.position = Vector2.ZERO
-		p.size = Vector2(vp.size)
+		if m.has("catcher"):
+			m.catcher.visible = true
 		dim.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		picker.mouse_filter = Control.MOUSE_FILTER_STOP
-		hint.visible = true
+		hint.visible = art_tex == null
 		do_layout()
 
 
@@ -389,7 +1021,7 @@ func screen_panel(main := false) -> Panel:
 	sb.set_border_width_all(2)
 	sb.set_corner_radius_all(5)
 	sb.shadow_color = Color(0.12, 0.5, 1.0, 0.12)
-	sb.shadow_size = 10
+	sb.shadow_size = 0 if art_tex != null else 10
 	p.add_theme_stylebox_override("panel", sb)
 	p.mouse_filter = Control.MOUSE_FILTER_STOP if not main else Control.MOUSE_FILTER_IGNORE
 	return p
@@ -676,9 +1308,8 @@ func build_right2() -> void:
 	vi.add_child(lbl_combat)
 
 
-# ---------------------------------------------------------------- petits écrans du cockpit (accoudoirs et moniteurs secondaires)
+# ---------------------------------------------------------------- petits moniteurs (sous l'écran principal) : contenu de taille fixe mis à l'échelle
 func small_screen(id: String, title: String, col: Color) -> Control:
-	var vp: SubViewport = cockpit.screens[id].vp
 	var p := Panel.new()
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = Color(col.r * 0.06, col.g * 0.06, col.b * 0.06, 1.0)
@@ -686,41 +1317,53 @@ func small_screen(id: String, title: String, col: Color) -> Control:
 	sb.set_border_width_all(3)
 	p.add_theme_stylebox_override("panel", sb)
 	p.theme = th_ui
-	vp.add_child(p)
-	p.set_anchors_preset(Control.PRESET_FULL_RECT)
-	p.position = Vector2.ZERO
-	p.size = Vector2(vp.size)
+	p.size = SMALL_DESIGN
 	var l := lbl(title, col, 22)
 	l.position = Vector2(14, 8)
 	p.add_child(l)
+	add_monitor(id, title.split(" ")[0], p, true)
 	return p
 
 
 func build_small_screens() -> void:
-	# accoudoir gauche : messages de la colonie
 	var lg := small_screen("log", "MESSAGES", Color("5ff0a0"))
 	lbl_log = lbl("", Color("5ff0a0"), 17)
 	lbl_log.position = Vector2(14, 44)
-	lbl_log.size = Vector2(472, 220)
+	lbl_log.size = Vector2(412, 260)
 	lbl_log.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	lg.add_child(lbl_log)
-	# accoudoir droit : pilote automatique
 	var bt := small_screen("bot", "PILOTE AUTOMATIQUE", Color("ffb347"))
 	lbl_bot = lbl("", Color("ffb347"), 19)
 	lbl_bot.position = Vector2(14, 50)
-	lbl_bot.size = Vector2(472, 210)
+	lbl_bot.size = Vector2(412, 250)
 	lbl_bot.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	bt.add_child(lbl_bot)
-	# moniteurs secondaires : systèmes, flux de données, énergie, alertes
 	for id in ["sys", "energy", "alert"]:
-		var col: Color = {"sys": CY, "lefttop": Color("3dffb0"), "energy": CY, "alert": Color("ff3ad0")}[id]
-		var title: String = {"sys": "SYSTÈMES DE LA COLONIE", "lefttop": "FLUX DE DONNÉES", "energy": "ÉNERGIE · BOUCLIER", "alert": "ALERTES DE LA STATION"}[id]
+		var col: Color = {"sys": CY, "energy": CY, "alert": Color("ff3ad0")}[id]
+		var title: String = {"sys": "SYSTÈMES DE LA COLONIE", "energy": "ÉNERGIE · BOUCLIER", "alert": "ALERTES DE LA STATION"}[id]
 		var p := small_screen(id, title, col)
 		var c := Control.new()
 		c.set_anchors_preset(Control.PRESET_FULL_RECT)
+		c.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		c.draw.connect(func(): draw_deco(id, c, col))
 		p.add_child(c)
 		deco[id] = c
+	# illustration : écrans supplémentaires sur les autres moniteurs du dessin (seulement s'ils sont décrits dans cockpit.json)
+	var extra := [["data", "STOCKS DE LA COLONIE", AMB], ["net", "LIAISON SUBSPATIALE", OK], ["scan", "BALAYAGE", CY],
+		["pop", "POPULATION · SANTÉ", CY], ["time", "HORLOGE DE MISSION", Color("e8e8f0")], ["fleet", "FLOTTES", OK],
+		["kron", "TERRE · ARCHE", AMB], ["cons", "TÉLÉSCRIPTEUR", OK]]
+	for d in extra:
+		var xid: String = d[0]
+		if art_tex == null or not art_map.has(xid):
+			continue
+		var xcol: Color = d[2]
+		var xp := small_screen(xid, d[1], xcol)
+		var xc := Control.new()
+		xc.set_anchors_preset(Control.PRESET_FULL_RECT)
+		xc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		xc.draw.connect(func(): draw_deco(xid, xc, xcol))
+		xp.add_child(xc)
+		deco[xid] = xc
 
 
 func draw_deco(id: String, c: Control, col: Color) -> void:
@@ -735,7 +1378,7 @@ func draw_deco(id: String, c: Control, col: Color) -> void:
 				c.draw_string(f, Vector2(18, y), items[i][0], HORIZONTAL_ALIGNMENT_LEFT, -1, 20, col)
 				c.draw_rect(Rect2(260, y - 18, s.x - 290, 18), Color(col.r, col.g, col.b, 0.15))
 				c.draw_rect(Rect2(260, y - 18, (s.x - 290) * clampf(items[i][1], 0.0, 1.0), 18), col)
-		"lefttop":
+		"lefttop", "net":
 			for k in 3:
 				var pts := PackedVector2Array()
 				for i in 60:
@@ -743,6 +1386,60 @@ func draw_deco(id: String, c: Control, col: Color) -> void:
 					pts.append(Vector2(x, s.y * (0.35 + 0.2 * k) + sin(i * 0.4 + tt * (2.0 + k) + k) * 18.0 * (0.5 + 0.5 * sin(tt * 0.7 + i * 0.1))))
 				c.draw_polyline(pts, Color(col.r, col.g, col.b, 0.9 - k * 0.25), 2.0)
 			c.draw_string(f, Vector2(18, s.y - 16), "LIAISON KRONOS · %d paquets/s" % int(800 + 200 * sin(tt)), HORIZONTAL_ALIGNMENT_LEFT, -1, 18, col)
+		"data":
+			var ks: Array = C.RES.keys()
+			var bh: float = (s.y - 60.0) / ks.size()
+			for i in ks.size():
+				var k: String = ks[i]
+				var y: float = 50.0 + i * bh
+				var fr: float = clampf(C.stock.get(k, 0.0) / maxf(1.0, C.caps().get(k, 1.0)), 0.0, 1.0)
+				c.draw_string(f, Vector2(14, y + bh * 0.7), String(C.RES[k].name).substr(0, 12), HORIZONTAL_ALIGNMENT_LEFT, -1, 15, col)
+				c.draw_rect(Rect2(180, y + 4, s.x - 200, bh - 8), Color(col.r, col.g, col.b, 0.15))
+				c.draw_rect(Rect2(180, y + 4, (s.x - 200) * fr, bh - 8), col)
+		"scan":
+			var ctr := Vector2(s.x * 0.5, s.y * 0.56)
+			var rr := minf(s.x, s.y) * 0.36
+			for k in 3:
+				c.draw_arc(ctr, rr * (k + 1) / 3.0, 0, TAU, 40, Color(col.r, col.g, col.b, 0.35), 2.0)
+			var an := tt * 2.0
+			for k in 12:
+				c.draw_line(ctr, ctr + Vector2.from_angle(an - k * 0.05) * rr, Color(col.r, col.g, col.b, 0.5 - k * 0.04), 3.0)
+			var n: int = S.emoves.size()
+			for k in n:
+				c.draw_circle(ctr + Vector2.from_angle(k * 2.1 + 0.5) * rr * 0.7, 6.0, BAD)
+			c.draw_string(f, Vector2(14, s.y - 12), "%d contact(s) hostile(s)" % n, HORIZONTAL_ALIGNMENT_LEFT, -1, 18, BAD if n > 0 else col)
+		"pop":
+			c.draw_string(f, Vector2(18, 80), "%d habitants" % int(C.pop), HORIZONTAL_ALIGNMENT_LEFT, -1, 34, col)
+			var its := [["SANTÉ", Sv.health / 100.0], ["MORAL", C.morale / 100.0], ["POLLUTION", clampf(C.pollution / 50.0, 0.0, 1.0)]]
+			for i in its.size():
+				var y := 140.0 + i * 52.0
+				c.draw_string(f, Vector2(18, y), its[i][0], HORIZONTAL_ALIGNMENT_LEFT, -1, 20, col)
+				c.draw_rect(Rect2(170, y - 18, s.x - 190, 18), Color(col.r, col.g, col.b, 0.15))
+				c.draw_rect(Rect2(170, y - 18, (s.x - 190) * clampf(its[i][1], 0.0, 1.0), 18), BAD if i == 2 else col)
+		"time":
+			var gt: float = w.war.time
+			c.draw_string(f, Vector2(18, 140), "%02d:%02d:%02d" % [int(gt / 3600.0), int(gt / 60.0) % 60, int(gt) % 60], HORIZONTAL_ALIGNMENT_LEFT, -1, 72, col)
+			var spd: String = "PAUSE" if w.paused else "VITESSE ×%s" % str(w.tscale)
+			c.draw_string(f, Vector2(18, 210), spd, HORIZONTAL_ALIGNMENT_LEFT, -1, 26, AMB if w.paused else DIM)
+		"fleet":
+			var nh := 0
+			for u in S.hangar:
+				nh += int(S.hangar[u])
+			c.draw_string(f, Vector2(18, 90), "%d flotte(s)" % S.fleets.size(), HORIZONTAL_ALIGNMENT_LEFT, -1, 30, col)
+			c.draw_string(f, Vector2(18, 140), "%d vaisseau(x) au hangar" % nh, HORIZONTAL_ALIGNMENT_LEFT, -1, 22, col)
+			c.draw_string(f, Vector2(18, 190), "%d colonie(s)" % S.col.size(), HORIZONTAL_ALIGNMENT_LEFT, -1, 22, col)
+			c.draw_string(f, Vector2(18, 240), "%d raid(s) pirate(s) en route" % S.emoves.size(), HORIZONTAL_ALIGNMENT_LEFT, -1, 22, BAD if S.emoves.size() > 0 else DIM)
+		"kron":
+			c.draw_string(f, Vector2(18, 80), "Latence : %.1f h-lumière" % Sv.latency_h, HORIZONTAL_ALIGNMENT_LEFT, -1, 20, col)
+			c.draw_string(f, Vector2(18, 120), "Réputation Terre : %d" % Sv.rep, HORIZONTAL_ALIGNMENT_LEFT, -1, 20, col)
+			c.draw_string(f, Vector2(18, 180), "ARCHE %d %%" % int(Sv.ark), HORIZONTAL_ALIGNMENT_LEFT, -1, 30, col)
+			c.draw_rect(Rect2(18, 200, s.x - 36, 18), Color(col.r, col.g, col.b, 0.15))
+			c.draw_rect(Rect2(18, 200, (s.x - 36) * Sv.ark / 100.0, 18), col)
+		"cons":
+			var line: String = C.log[0] if C.log.size() > 0 else "K-240 · EN LIGNE"
+			var tw: float = f.get_string_size(line, HORIZONTAL_ALIGNMENT_LEFT, -1, 40).x + s.x
+			var x: float = s.x - fmod(tt * 120.0, tw)
+			c.draw_string(f, Vector2(x, s.y * 0.66), line, HORIZONTAL_ALIGNMENT_LEFT, -1, 40, col)
 		"energy":
 			var e: Dictionary = C.energy
 			c.draw_string(f, Vector2(18, 70), "%d / %d" % [int(e.p), int(e.c)], HORIZONTAL_ALIGNMENT_LEFT, -1, 44, BAD if e.c > e.p else col)
@@ -770,15 +1467,44 @@ func set_speed(s: float) -> void:
 		w.tscale = s
 
 
+# illustration : les moniteurs plaqués en perspective ne reçoivent pas la souris ; clic et survol testés sur leur quadrilatère
+var art_hover := false
+func art_mon_at(p: Vector2) -> Dictionary:
+	for i in range(mons.size() - 1, -1, -1):
+		var m: Dictionary = mons[i]
+		if m.has("quad") and m.quad.size() == 4 and Geometry2D.is_point_in_polygon(p, m.quad):
+			return m
+	return {}
+
+
+func _input(e: InputEvent) -> void:
+	if art_tex == null or not visible or focused != null:
+		if art_hover:
+			art_hover = false
+			Input.set_default_cursor_shape(Input.CURSOR_ARROW)
+		return
+	if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:
+		var m := art_mon_at(e.position)
+		if not m.is_empty():
+			focus_screen(m)
+			get_viewport().set_input_as_handled()
+	elif e is InputEventMouseMotion:
+		var hov := not art_mon_at(e.position).is_empty()
+		if hov != art_hover:
+			art_hover = hov
+			Input.set_default_cursor_shape(Input.CURSOR_POINTING_HAND if hov else Input.CURSOR_ARROW)
+
+
 # ---------------------------------------------------------------- mise à jour
 func _process(dt: float) -> void:
 	if not visible:
 		return
 	animate_focus(dt)
-	cockpit.update(dt, get_viewport().get_mouse_position(), Vector2(get_viewport().size))
 	for id in deco:
 		deco[id].queue_redraw()
 	sweep = fmod(sweep + dt * 1.3, TAU)
+	cock_t += dt
+	room.queue_redraw()
 	radar.queue_redraw()
 	if map.visible:
 		map.queue_redraw()
@@ -862,10 +1588,10 @@ func refresh() -> void:
 	# console
 	lbl_log.text = "\n".join(C.log.slice(0, 4))
 	# voyants des boutons des accoudoirs
-	cockpit.set_lit("pause", w.paused)
+	set_lit("pause", w.paused)
 	for k in [[1.0, "x1"], [2.0, "x2"], [4.0, "x4"], [8.0, "x8"]]:
-		cockpit.set_lit(k[1], not w.paused and w.tscale == k[0])
-	cockpit.set_lit("bot", S.bot_on)
+		set_lit(k[1], not w.paused and w.tscale == k[0])
+	set_lit("bot", S.bot_on)
 	refresh_contacts()
 	refresh_extra()
 	refresh_survival()

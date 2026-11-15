@@ -423,3 +423,136 @@ Les motivations et les défis réels de la colonisation de la ceinture de Kuiper
   - Correctifs : un tirage toutes les 2 min (au lieu de chaque minute), une probabilité de 3,5 % (au lieu de 8 %), et un seuil de croissance abaissé à 30.
   - Résultat : population à 400, santé à 100 %, 3 raids repoussés, victoire à 17 min.
   - Le pilote prend Kronos avant d'aller jusqu'au bout de l'arche : la victoire par l'arche n'a pas été vérifiée en jeu.
+
+## 16. Style low-poly « game-ready » (2026-11-15)
+Demande de l'utilisateur : « refais tout le jeu en environnements 3D low-poly et assets game-ready », d'après une image de poste de travail low-poly (deux rangées de moniteurs, clavier coloré, mains robotiques, tons pastel cyan et rose).
+- **Shader `shaders/lowpoly.gdshader`** : chaque triangle est éclairé à plat, avec une normale de facette calculée par `cross(dFdx(VERTEX), dFdy(VERTEX))`. Paramètres : albédo, métal, rugosité, émission, couleur de sommet optionnelle.
+  - **Tous les matériaux opaques de la base** passent par `main.lowpoly_from(StandardMaterial3D)`, appelé dans `M()`. Les matériaux transparents (verre, visières) restent standard. Le métal est réduit (×0,35) et la rugosité vaut au moins 0,65, pour un rendu mat de « jeu ».
+  - Les ShaderMaterial low-poly portent la méta `lowpoly` : `is_solid` les compte donc toujours pour les collisions au sol (`settle`).
+  - **Unités** (`battle.gd`) : `BODY` est un ShaderMaterial low-poly avec couleur de sommet ; `mat()` passe par `w.lowpoly_from`.
+  - **Sol** (`terrain.gdshader`) : la normale de facette remplace la normale lissée, et le maillage passe à des mailles de 6 m au lieu de 4 (`N` entre 60 et 140, lobe entre 36 et 100) pour que les facettes se voient. Les collisions suivent toujours `surf_eval`.
+- **Géométrie moins ronde** : `cyl()` est limité à 10 segments et 1 anneau, `sph()` à 10 × 5, `strut()` à 8 segments.
+- **Cockpit refait** (`cockpit.gd`, d'après l'image) :
+  - **deux rangées de 5 moniteurs massifs** en arc (`MON` : colonne −2 à 2, rangée 0 ou 1 ; `MW` × `MH` = 0,6 × 0,4 m ; rayon de 2,05 m ; 20° entre colonnes), chacun avec boîtier gris lavande et pied ;
+    - rangée du haut : gestion de la colonie, diplomatie, vue principale, radar, commandement spatial ;
+    - rangée du bas : énergie et bouclier, systèmes, messages, alertes, pilote automatique ;
+  - salle aux murs gris-violet, armoires et tuyaux au mur du fond, lumière cyan à gauche et rose à droite ;
+  - bureau clair, clavier aux touches colorées (blanc, rose, turquoise, jaune, bleu), **bras robotiques du pilote** qui arrivent du bas de l'image jusqu'au clavier (`robot_hand` : avant-bras, poignet, dos de main, doigts en phalanges, pouce), tasse, câble enroulé ;
+  - deux boîtiers de boutons : vitesse et vue 3D à gauche, PILOTE AUTO et voyants à droite. Les ids restent `pause`, `x1`, `x2`, `x4`, `x8`, `tab`, `bot`.
+  - Les écrans MESSAGES (`log`) et PILOTE AUTOMATIQUE (`bot`), auparavant sur les accoudoirs, sont maintenant des moniteurs de la rangée du bas.
+- Correctif : en mode captures (`--shots` sans `--passerelle`), il faut appeler `layout_screen()` après avoir masqué la passerelle, sinon la vue 3D reste dans l'écran du cockpit et les captures sont grises.
+- Contact au sol mesuré après le passage en low-poly (`--verif-chars`, cacahuète) : chars −0,20 à +0,55 m, fantassins −0,38 à +0,51 m, angle moyen 0,3°. Les écarts sont un peu plus grands à cause des facettes de 6 m.
+
+## 17. Flat shading / low-poly sans texture (2026-11-15)
+Retour de l'utilisateur sur la section 16 : « non, ça ne va pas, essaie le flat shading / low-poly sans texture ». Les images de référence montrent des aplats unis par facette, un éclairage tranché, des ombres bleutées et des rochers à flancs gris-bleu et sommets beige.
+- **Aucune texture** : `terrain.gdshader` est réécrit, sans bruit, plaques, paillettes, strates ni cailloux. Une **seule teinte unie par zone**, avec des frontières nettes :
+  - sol `GROUND`, rebord de cratère `GROUND_L` (UV2.x > 0,35), fond de cratère `CRATER` (< −0,35) ;
+  - haut de pente `CLIFF_TOP` (UV2.y > 0,26), falaise `CLIFF` gris-bleu (> 0,38), chemins `PATH` en aplat clair.
+  - `noise_tex` est conservé comme uniforme, mais n'est plus utilisé.
+- **Éclairage tranché deux tons**, commun au sol, à `lowpoly.gdshader` (bâtiments, unités) et à `toon.gdshader` (décor). Une facette est éclairée (`step(0.08, N·L)` × ombre portée) ou dans l'ombre ; l'ombre n'est jamais noire, elle est teintée bleu-violet (`(0.34, 0.40, 0.70) × 0.45`, à 35 %).
+- Le décor (`toon.gdshader`) calcule aussi la normale de facette.
+- **Rochers** : flancs gris-bleu ardoise (3f4766 → 6e7698), sommets beige (c9c1b0, cfc7b6) ; cailloux gris-bleu et beige.
+- Piège : un premier essai avait des teintes de sol à 0,30–0,56 en linéaire, et le sol est sorti **blanc** (ACES, exposition 1,25, halo, filtre 12). Il faut rester autour de 0,14 pour le sol, comme l'ancien calibrage (0,148).
+
+## 18. Poste de pilotage en pixel art cyberpunk (2026-11-15)
+Demande de l'utilisateur : changer le style graphique du siège à la première personne d'après une image de pixel art cyberpunk (pièce sombre encombrée, moniteurs cathodiques verts sur bras mécaniques, fenêtre sur une ville de nuit, fauteuil, néons, mains humaines au clavier). **Seul le cockpit change** ; l'astéroïde reste en flat shading (section 17). `cockpit.gd` a été réécrit.
+- **Pixel art** :
+  - le monde du cockpit est rendu en basse résolution (`cockpit.PX` = 3, soit 533 × 300 pour une fenêtre de 1600 × 900, sans MSAA) ;
+  - il est affiché en pixels nets (`texture_filter` NEAREST sur le TextureRect `view` de `bridge.gd`) avec `shaders/pixel.gdshader` : postérisation à 9 niveaux, tramage de Bayer 4×4 à 0,35, saturation ×1,15.
+  - `pick()` divise les coordonnées de la fenêtre par `PX` ; `project_rect()` les multiplie (rectangle du moniteur dans la fenêtre, pour l'animation d'agrandissement).
+- **Écrans cathodiques** (`shaders/crt.gdshader`, sur les quads des moniteurs) : image de l'écran de jeu teintée phosphore (`phos`, `tint` : vert, ambre pour énergie et pilote, rose pour les alertes), lignes de balayage, léger bombé, bords assombris. L'écran agrandi en 2D n'est pas teinté.
+- **Scène** :
+  - murs sombres violet-brun, affiches, câbles rouges et violets ;
+  - fenêtre à gauche sur la colonie de nuit (silhouettes, lumières rose, cyan et jaune, étoiles), fauteuil en cuir, étagères à droite pleines de gadgets à petits écrans ;
+  - **enseignes au néon** en Label3D avec lumière et grésillement (`neons`, `update`) : « K-240 » rose, « HÉLIUM-3 » jaune, « KUIPER » cyan. Les noms sont propres au jeu, rien n'est repris de l'image.
+  - **10 moniteurs cathodiques** épais (cadre et caisson en gradins), tous accrochés au mur du fond par un **bras mécanique articulé** avec câble (`MON` : id, x, y, taille, pixels/m, teinte, part de teinte). La vue principale est au centre ; gestion, commandement, diplomatie, radar, alertes autour ; énergie et systèmes sur les côtés ; messages et pilote sous la vue principale.
+  - bureau sombre, clavier gris, console gauche à gros boutons (vitesse et 3D), boîtier droit (PILOTE AUTO et voyants), canette, boîtier, câbles ;
+  - **mains humaines** (`hand`) : la gauche nue sur le clavier, la droite **gantée** (gant sans doigts, bracelet lumineux cyan) sur le boîtier.
+  - Lumières : lueur verte des écrans, néons rose et cyan, bleu de la fenêtre, **lampe chaude près des mains** pour que la peau ne vire pas au vert.
+
+## 19. Cockpit de vaisseau en pixel art 16 bits (2026-11-15)
+Retour de l'utilisateur sur la section 18 : « le rendu n'est pas bon, passe en pixel art 16 bits », avec trois références : cockpits de vaisseau symétriques, palette d'une seule teinte (vert, ambre, ou cyan avec accent rouge), grande baie centrale, consoles couvertes de voyants, manettes. `cockpit.gd` a été réécrit ; la pièce cyberpunk de la section 18 (fenêtre, fauteuil, néons, mains) n'existe plus.
+- **Rendu** :
+  - basse résolution `PX` = 4 (400 × 225), pixels nets ;
+  - `shaders/pixel.gdshader` ramène **chaque pixel à une palette fixe de 8 teintes** (`pal[8]`) selon sa luminosité (`gain` 1,35, `gamma_l` 0,75), avec un léger tramage de Bayer (0,18) entre deux teintes voisines ;
+  - **couleur d'accent** optionnelle (`use_acc`, rouge) pour les voyants rouges saturés.
+- **3 palettes** (`cockpit.PALETTES`) : Phosphore vert (par défaut), Ambre, Cyan et rouge (avec accent). Le bouton **PAL** du boîtier gauche les fait défiler (`cycle_palette`, `bridge.press("pal")`). `bridge.gd` passe le matériau à `cockpit.px_mat`.
+- **La scène est en niveaux de gris**, c'est la palette qui donne la couleur : éclairage blanc faible (ambiant 0,18) pour une **structure sombre et des écrans lumineux** ; les écrans CRT ont `tint` 0 et `bright` 1,6.
+- **Géométrie** :
+  - membrures en arc de la coque (3 arcs, lisses longitudinales) et panneaux de plafond ;
+  - **baie centrale** = la vue principale (`center`, 1,14 × 0,68 m), dans un cadre à pans coupés ;
+  - écrans autour : gestion et commandement sur les ailes, diplomatie et radar en haut, énergie et alertes plus haut sur les côtés, systèmes à gauche en bas, messages et pilote sur le pupitre ;
+  - consoles inclinées et pupitre bas couverts de **greebles** (`greeble` : voyants, dont certains clignotent via `blinkers`, cadrans, interrupteurs, afficheurs à barres, boutons) ;
+  - **deux manettes** ; boîtier gauche (II, ×1, ×2, ×4, ×8, 3D, PAL) et boîtier droit (PILOTE AUTO en rouge, voyants).
+- `pick` et `project_rect` tiennent compte de `PX`, comme en section 18.
+
+## 20. Refonte du style : sci-fi 3D semi-réaliste, interface 2D (2026-11-15)
+Retour de l'utilisateur : « non, c'est affreux ». Il a donné six images de référence de jeux de stratégie sci-fi en 3D : régolithe gris cratérisé, nébuleuse violette et rose, planète à anneaux, avant-poste en métal gris aux lumières orange et vertes, soldats bleu et orange, drones rouges, tirs lumineux. Consigne : **les zones fixes (menus, écrans) en 2D, l'astéroïde en 3D** ; un écran en plein écran doit **garder les contours du moniteur** (bouton marche/arrêt…). Les sections 16 à 19 (low-poly, flat shading, cockpits pixel art) sont remplacées.
+- **Interface 2D** (`bridge.gd`) ; `cockpit.gd`, `pixel.gdshader` et `crt.gdshader` sont supprimés.
+  - Fond `draw_room` : murs de panneaux métalliques à rivets, bandeau de titre, socle de la console.
+  - **Moniteurs** (`add_monitor`, `mons`) : cadre `Panel` gris anthracite à coins arrondis et ombre ; écran (`holder` → contenu) ; bas du cadre (`draw_bezel`) avec marque « K-240 · TITRE », voyant vert ou rouge, deux molettes et grille d'aération.
+    - **bouton ⏻** (`toggle_power`) : éteint ou rallume l'écran ; un écran principal éteint ne pilote plus la caméra.
+    - bouton « ✕ RÉDUIRE (Échap) », visible en plein écran.
+  - Petits moniteurs (systèmes, énergie, alertes, messages, pilote) : contenu de taille fixe `SMALL_DESIGN` (440 × 320) mis à l'échelle (`place_mon`). Sous 240 px de large, le cadre n'affiche que le voyant et le bouton.
+  - Disposition (`home_rects`) :
+    - colonne gauche : gestion (60 %) et diplomatie ;
+    - centre : vue principale (74 %), avec dessous les 5 petits moniteurs ;
+    - colonne droite : radar (45 %) et commandement spatial ;
+    - en bas : **console** à boutons physiques (`hw_btn`) : vitesse ⏸ ×1 ×2 ×4 ×8, « VUE 3D SEULE (Tab) », « 🤖 PILOTE AUTO » (`hw`, `set_lit`).
+  - **Plein écran** (`focus_screen`, `animate_focus`, 0,3 s) : le moniteur entier (cadre compris) s'anime de sa place à 94 × 92 % de la fenêtre, au-dessus d'un fond assombri. Un clic sur un écran latéral l'agrandit ; l'écran principal s'agrandit avec ⛶.
+  - La caméra se pilote directement dans l'écran principal (`screen_rect`), sauf si un autre écran est agrandi.
+- **Monde 3D semi-réaliste** :
+  - **sol** (`terrain.gdshader` réécrit) : régolithe gris légèrement brun (bruit fractal sur 3 échelles et grain fin), fonds de cratère sombres, rebords et éjectas clairs, roche nue sombre sur les pentes, chemins en régolithe tassé ;
+    - **relief de détail** par perturbation de la normale (gradient du bruit) ;
+    - éclairage PBR standard (plus de `light()` personnalisé) ;
+    - mailles revenues à 4 m.
+  - **ciel** (`shaders/sky.gdshader`, Sky en mode REALTIME) : nébuleuse violette, rose et bleue en bande (bruit de valeur 3D fractal), filaments de poussière sombre, étoiles de trois tailles.
+  - **planète de fond** : géante gazeuse à bandes beige et brun (texture générée), avec **anneaux** (`shaders/ring.gdshader`, profil radial en texture 1D). Elle remplace la Terre ; le nœud s'appelle toujours `earth`.
+  - **matériaux** : `M()` rend des StandardMaterial3D (plus de `lowpoly_from`). La base passe en **métal gris** (`kaki` 4c5158, `kaki_clair` 737a83, `blinde` 2c3036, `gris_dep` 5a6068, métal 0,5–0,6) avec ses accents orange.
+  - Cylindres et sphères sont de nouveau arrondis (24 segments).
+  - **décor** (`toon.gdshader`) : facettes, PBR standard, rochers gris-brun.
+  - **unités** (`battle.gd`) : StandardMaterial3D à couleur de sommet. Colonie en armure **bleue** (2a5fd8) aux équipements **orange**, tirs orange ; pirates **rouges**, visières et tirs **verts**.
+  - **filtre de style** : mode 0 (aucun) par défaut dans toutes les vues.
+  - **HUD de la vue 3D seule** (`bd_panel`, `bd_label`) : panneaux sombres translucides à liseré cyan, texte clair, titre orange.
+
+## 21. Cockpit 2D autour des moniteurs (2026-11-15)
+Demande de l'utilisateur : « je veux quand même un cockpit en 2D ». Le mur de moniteurs de la section 20 est maintenant encastré dans un cockpit dessiné en 2D (`bridge.draw_room`, redessiné à chaque image pour les voyants, `cock_t`) :
+- **verrière** trapézoïdale en haut, avec 5 montants et des reflets : on y voit l'espace (étoiles, lueurs de nébuleuse, petite planète à anneaux). L'inscription « K-240 · POSTE DE COMMANDEMENT » est sous la verrière ;
+- **coque** gris anthracite autour ; **piliers** latéraux à rivets avec 8 voyants qui clignotent chacun ;
+- **pupitre** en bas, avec une tablette à liseré cyan ; de chaque côté, un panneau de voyants (vert, ambre, rouge) et de cadrans animés, et une **manette** (socle, tige, poignée à bouton rouge) ; au centre, le socle de la console de boutons physiques.
+- **Disposition** (`home_rects`) : les moniteurs occupent la zone entre la verrière (haut à 104 px) et le pupitre (150 px), avec 44 px de marge sur les côtés pour les piliers ; la console de boutons est centrée (21 % à 79 % de la largeur). L'aide est affichée juste au-dessus du pupitre.
+
+## 22. Cockpit 2D en pixel art « repaire de hacker » (2026-11-15)
+Demande de l'utilisateur, avec une image de référence (moniteurs cathodiques verts en grappe, câbles, bras mécaniques, néons, clavier et mains au premier plan). Il remplace le décor de la section 21.
+- **Fond en pixel art** : `room` est dessiné dans un SubViewport (`room_vp`, à 1/`PXR` = 1/3 de la résolution, `canvas_transform` réduit), puis affiché en pixels nets (`room_view`, NEAREST). Les écrans restent nets pour rester lisibles.
+- **Décor** (`draw_room`) :
+  - mur brun-rouge sombre à panneaux et rivets, tuyaux horizontaux et verticaux ;
+  - **bras mécaniques** derrière chaque moniteur jusqu'au mur ; câbles rouges et violets qui pendent (`cable2`) ;
+  - néons « K-240 » (rose) et « KUIPER » (cyan) qui grésillent ;
+  - **bureau** au premier plan avec une lueur verte des écrans ; gadgets (boîtier à voyants, carte électronique, canette, câble enroulé) ;
+  - **clavier** et **deux mains** (`draw_hand`) : la gauche nue, la droite avec un **gant sans doigts** et un bracelet cyan.
+- **Moniteurs** : cadres cathodiques gris épais (55585f, bord 7a7e86) ; contenu teinté **vert phosphore** (`modulate`) ; voile **`shaders/scan.gdshader`** par-dessus chaque écran (lignes de balayage, bords assombris). Bouton ⏻ et cadre en plein écran inchangés.
+- **Disposition** : moniteurs entre 66 px du haut et 172 px du bas ; boutons de la console répartis de part et d'autre du clavier : vitesse à gauche, « VUE 3D (Tab) » et « PILOTE AUTO » à droite.
+- **Retouche du 2026-11-15** (retour « il y a de ça, mais c'est moche ») :
+  - pixels plus fins (`PXR` = 2) ;
+  - **cadres en relief** dessinés dans `draw_bezel` : coque 4c4f57, biseau clair en haut et à gauche, ombre en bas et à droite, bordure creusée autour de l'écran, halo vert d'écran allumé, voyant avec halo, plaque de marque, molettes en relief, grille d'aération ; le StyleBox du cadre n'a plus de bord ni d'arrondi ;
+  - bureau en perspective, **clavier en trapèze** (touches à dessus clair et face avant sombre, touches roses et turquoise) ;
+  - **mains** redessinées : avant-bras effilé avec reflet, dos de main bombé, doigts arrondis avec ongles, pouce replié, manchette du gant avec halo cyan ;
+  - gadgets ombrés, vignettage sur les bords ;
+  - voile de balayage et teinte verte des écrans adoucis (0,12 ; modulate 0,85/1/0,88).
+
+## 23. Cockpit sur illustration fournie (2026-11-15)
+Retour de l'utilisateur : « le dessin est moche ». Il a fourni une vraie illustration de cockpit (repaire de hacker, écrans holographiques), copiée dans **`art/cockpit.png`** (673 × 348, donc un peu floue une fois agrandie).
+- `bridge.load_art` charge l'image. Elle couvre la fenêtre en gardant ses proportions (`art_rect`), avec un filtrage lissé. Sans image, le décor pixel art de la section 22 revient.
+  - Piège : l'image doit être **importée** (`Godot --headless --path . --import`, ce que fait `build.ps1`). Sinon `ResourceLoader.exists` est faux et l'ancien décor s'affiche.
+- **`art/cockpit.json`** : `{ "id": [x, y, largeur, hauteur] }` en fractions de l'image, pour les ids `left`, `center`, `right`, `right2`, `diplo`, `sys`, `energy`, `alert`, `log`, `bot` et `console` (`home_rects`). Pour recaler un écran sur un moniteur de l'image, il suffit de modifier ce fichier. Export : `include_filter="art/*.json"`.
+- **Mode « nu »** (`m.bare`, dans `place_mon`) : à sa place, un écran n'a ni cadre ni bouton ⏻ (`draw_bezel` ne dessine rien), puisque l'image a ses propres moniteurs. Le contenu garde la mise en page du plein écran et il est réduit pour tenir dans le moniteur. Une fois agrandi d'un clic, l'écran retrouve son cadre complet.
+- L'écran principal s'agrandit lui aussi d'un clic. La caméra ne se pilote **que lorsque l'écran principal est agrandi** (`screen_rect` tient compte de l'échelle du contenu).
+- La console de boutons est en bas à gauche, sur deux rangées : la vitesse, puis VUE 3D et PILOTE AUTO. La ligne d'aide est masquée.
+- **Netteté** (2026-11-15) : l'original flou est conservé dans `images/cockpit_original.png`. `art/cockpit.png` (2692 × 1392) en est un agrandissement ×4 (Lanczos), passé au filtre de Kuwahara (rayon 3), qui aplatit les zones et durcit les contours, puis à un léger masque flou (0,25). Script : `tools/sharpen_art.gd` (en fenêtre, car les shaders ont besoin du rendu) : `Godot --rendering-driver opengl3 --script tools/sharpen_art.gd -- <entrée> <sortie> 4 3 0.25`.
+- Outils gratuits installés à la demande de l'utilisateur dans `F:\Outils` : Python 3.12 (`F:\Outils\Python312`), ImageMagick (`F:\Outils\ImageMagick\magick.exe`) et Real-ESRGAN ncnn (`F:\Outils\RealESRGAN`, agrandisseur par IA). Le lancement de Real-ESRGAN a été bloqué par les permissions de Claude Code et il faut l'accord de l'utilisateur.
+- **Perspective** (2026-11-15, demande « que les écrans aient la même perspective et s'incorporent parfaitement au dessin ») : dans `cockpit.json`, chaque moniteur est un **quadrilatère** `[[x,y] haut-gauche, haut-droit, bas-droit, bas-gauche]` en fractions de l'image, mesuré sur l'illustration. La console garde le format rectangle `[x, y, l, h]`.
+  - En mode illustration, chaque moniteur est rendu dans son propre SubViewport (`m.vp`, à la taille du plein écran × `k`, la taille étant ajustée au quadrilatère pour que le texte reste net). Un Control `m.warp` le plaque sur le quadrilatère par une grille de 12 × 12 mailles projetées par **homographie** (`homography`, `hmap`, `draw_warp`). Les hologrammes (`left`, `diplo`, `right`, `right2`) sont légèrement transparents (0,9).
+  - Agrandissement : les 4 coins glissent vers le plein écran. À la fin, `set_flat` remet le moniteur dans la passerelle comme Control normal (interactif) ; il retourne dans sa texture dès le début de la réduction.
+  - La souris ne passe pas dans les SubViewport : clic et curseur main sont gérés par `bridge._input` (`art_mon_at`, test du point dans le quadrilatère).
+- **Écrans supplémentaires** sur les autres moniteurs du dessin (créés seulement en mode illustration et s'ils figurent dans `cockpit.json`, dans `build_small_screens`, dessinés par `draw_deco`) : `data` (stocks, CRT ambre en haut à gauche), `net` (liaison, onde verte), `scan` (petit radar rond), `pop` (population, santé, moral, pollution), `time` (horloge de mission et vitesse, écran à cassette), `fleet` (flottes, hangar, colonies, raids), `kron` (Terre et arche, hologramme ambre étroit à droite), `cons` (téléscripteur qui fait défiler le dernier message).

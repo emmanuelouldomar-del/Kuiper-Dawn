@@ -40,7 +40,7 @@ var wt := 0.0
 var time := 0.0
 var kills := {"b": 0, "r": 0}
 var PAL := {}
-var BODY: StandardMaterial3D
+var BODY: Material
 var EMIS := {}
 var CHAR: StandardMaterial3D
 var glow_tex: Texture2D
@@ -338,18 +338,19 @@ func setup(world) -> void:
 		RL += p.distance_to(prev)
 		prev = p
 
+	# unités : plastique et métal peints, couleur de sommet (style « figurines » des images de référence)
 	BODY = StandardMaterial3D.new()
 	BODY.vertex_color_use_as_albedo = true
 	BODY.vertex_color_is_srgb = true
-	BODY.roughness = 0.72
-	BODY.metallic = 0.15
+	BODY.roughness = 0.5
+	BODY.metallic = 0.25
 	CHAR = StandardMaterial3D.new()
 	CHAR.albedo_color = Color(0.09, 0.08, 0.07)
 	CHAR.roughness = 1.0
-	PAL["b"] = {"armor": Color("3f7fa6"), "plate": Color("7fb4d0"), "suit": Color("263038"), "gear": Color("3f5566"), "metal": Color("5f6469"),
-		"dark": Color("1c1e21"), "fuel": Color("7a2a18"), "acc": Color("40e0ff"), "visor": Color("5ff0ff"), "tr": Color(0.45, 0.95, 1.0)}
-	PAL["r"] = {"armor": Color("a3402c"), "plate": Color("c75a3e"), "suit": Color("33201b"), "gear": Color("5a2c22"), "metal": Color("6b6258"),
-		"dark": Color("1f1914"), "fuel": Color("7a2a18"), "acc": Color("ffb040"), "visor": Color("ffc040"), "tr": Color(1.0, 0.45, 0.2)}
+	PAL["b"] = {"armor": Color("2a5fd8"), "plate": Color("5d8ff2"), "suit": Color("1e2a44"), "gear": Color("e07a22"), "metal": Color("6a7078"),
+		"dark": Color("1c1e21"), "fuel": Color("7a2a18"), "acc": Color("40e0ff"), "visor": Color("5ff0ff"), "tr": Color(1.0, 0.72, 0.28)}
+	PAL["r"] = {"armor": Color("b8261e"), "plate": Color("e0483a"), "suit": Color("2e1414"), "gear": Color("4a4a50"), "metal": Color("5a5a62"),
+		"dark": Color("1f1914"), "fuel": Color("7a2a18"), "acc": Color("ffb040"), "visor": Color("6dff4a"), "tr": Color(0.55, 1.0, 0.3)}
 	for s in ["b", "r"]:
 		var em := StandardMaterial3D.new()
 		em.albedo_color = Color(0, 0, 0)
@@ -458,7 +459,7 @@ func setup(world) -> void:
 		spawn("r", mix(), randf_range(0.6, 0.94))
 
 
-func mat(c: Color) -> StandardMaterial3D:
+func mat(c: Color) -> Material:
 	var m := StandardMaterial3D.new()
 	m.albedo_color = c
 	m.roughness = 0.6
