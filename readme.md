@@ -47,7 +47,7 @@ Si PowerShell bloque les scripts, utilisez `build.bat` ou `build.sh`, qui passen
 ### Configuration
 
 - **Version du jeu** : `config/version` dans `project.godot`, reprise dans le nom des archives.
-- **Préréglages d'export** : `export_presets.cfg`, avec les presets « Windows » et « Linux » (x86_64, données intégrées à l'exécutable). Les fichiers `terrain/*.bin` sont inclus explicitement, car ce ne sont pas des ressources Godot. `images/` est exclu.
+- **Préréglages d'export** : `export_presets.cfg`, avec les presets « Windows » et « Linux » (x86_64, données intégrées à l'exécutable). `images/` est exclu.
 - **Sorties** : `build/` et `dist/` ne sont pas versionnés.
 
 ## Commandes du jeu
@@ -63,14 +63,15 @@ Si PowerShell bloque les scripts, utilisez `build.bat` ou `build.sh`, qui passen
 | Espace | Pause |
 | S | Changer de filtre |
 | F | Plein écran |
-| Échap | Quitter |
+| Tab | Passerelle de commandement ↔ vue 3D plein écran |
+| Clic sur un écran latéral, ou ⛶ pour l’écran principal | Agrandir l’écran (Échap pour le réduire) |
+| Échap | Réduire l’écran agrandi, sinon quitter |
 
 ## Fichiers
 
-- `main.gd` : le monde (astéroïde à forme aléatoire, terrain, base minière, caméra, vues, filtres, interface)
-- `battle.gd` : la simulation de bataille (fusiliers, lance-flammes, robots, chars, chasseurs)
-- `shaders/` : terrain, filtre de style, planète, lobe, panaches
-- `terrain/` : cartes de hauteur et d'albédo (1024², float32)
-- `images/` : captures d'écran
+- `main.gd` : le monde. L'astéroïde est généré à chaque partie façon Planetary Annihilation (maillage cube-sphère, bruit 3D, cratères, plateaux, crêtes) avec un biome désert cartoon. Le fichier gère aussi la base minière (posée sans traverser le sol), le décor, la caméra (zoom continu du sol à l'orbite), les vues, les filtres et l'interface.
+- `battle.gd` : la simulation de bataille (fusiliers, lance-flammes, robots, chars, chasseurs).
+- `shaders/` : sol du désert, décor en aplats, filtre de style, planète de fond, panaches.
+- `images/` : captures d'écran.
 
 Le détail technique est dans [Agent.md](Agent.md).

@@ -1,6 +1,6 @@
 extends Node3D
 ## Bataille de formations à l'échelle réelle (mètres).
-## Une unité = une formation : 60 fusiliers, 24 lance-flammes, 12 robots de soutien ou 4 chars (voir KIND).
+## Une unité = une formation : 30 fusiliers, 12 lance-flammes, 6 robots de soutien ou 2 chars (voir KIND).
 ## Soldat 1,85 m · robot 2,4 m (+30 %) · char ~9 m.
 ## Les soldats sont dessinés par instanciation (MultiMesh) avec 4 poses de marche + 1 pose arrêtée.
 
@@ -14,10 +14,10 @@ var MIDN: Vector3
 var MIDP: Vector3
 const LANES := [-48.0, 0.0, 48.0]
 var KIND := {
-	"rifle": {"n": 60, "cols": 10, "spx": 4.2, "spz": 3.6, "hp": 10.0, "speed": 2.2, "rng": 110.0, "dps": 0.12, "fire": 0.5, "h": 1.35},
-	"flame": {"n": 24, "cols": 8, "spx": 4.0, "spz": 3.8, "hp": 14.0, "speed": 2.3, "rng": 28.0, "dps": 1.1, "fire": 0.0, "h": 1.2},
-	"robot": {"n": 12, "cols": 6, "spx": 6.0, "spz": 6.0, "hp": 90.0, "speed": 1.8, "rng": 120.0, "dps": 0.9, "fire": 1.4, "h": 1.9},
-	"tank": {"n": 4, "cols": 2, "spx": 16.0, "spz": 14.0, "hp": 500.0, "speed": 3.0, "rng": 220.0, "dps": 13.0, "fire": 0.31, "h": 2.4},
+	"rifle": {"n": 30, "cols": 10, "spx": 4.2, "spz": 3.6, "hp": 10.0, "speed": 2.2, "rng": 110.0, "dps": 0.12, "fire": 0.5, "h": 1.35},
+	"flame": {"n": 12, "cols": 6, "spx": 4.0, "spz": 3.8, "hp": 14.0, "speed": 2.3, "rng": 28.0, "dps": 1.1, "fire": 0.0, "h": 1.2},
+	"robot": {"n": 6, "cols": 3, "spx": 6.0, "spz": 6.0, "hp": 90.0, "speed": 1.8, "rng": 120.0, "dps": 0.9, "fire": 1.4, "h": 1.9},
+	"tank": {"n": 2, "cols": 2, "spx": 16.0, "spz": 14.0, "hp": 500.0, "speed": 3.0, "rng": 220.0, "dps": 13.0, "fire": 0.31, "h": 2.4},
 }
 var MULT := {
 	"rifle": {"rifle": 1.0, "flame": 1.0, "robot": 0.35, "tank": 0.03},
@@ -34,6 +34,8 @@ var FT: Array = []
 var DS: Array = []
 var TUR: Array = []
 var wave := 1
+var ds_down := 0          # vaisseaux de débarquement abattus
+var kronos_dead := false  # Kronos conquis : plus de renforts pirates
 var wt := 0.0
 var time := 0.0
 var kills := {"b": 0, "r": 0}
@@ -442,9 +444,13 @@ func setup(world) -> void:
 			gun.position = Vector3(3.0, 0.3, z)
 			hd.add_child(gun)
 		add_child(g)
+		# tourelle bien droite (verticale locale) sur un sol aplani à sa hauteur
 		var fr := frame(0.06, lane)
-		g.basis = Basis(fr.f, fr.n, fr.f.cross(fr.n))
+		var upt: Vector3 = w.up_at(fr.p)
+		var fwt: Vector3 = (fr.f - upt * fr.f.dot(upt)).normalized()
+		g.basis = Basis(fwt, upt, fwt.cross(upt))
 		g.position = fr.p
+		w.add_flat_zone(fr.p, 4.5)
 		TUR.append({"g": g, "hd": hd, "cool": 0.0})
 
 	for i in 5:
@@ -499,16 +505,64 @@ func frame(s: float, lane: float) -> Dictionary:
 	var p2: Vector3 = w.gp(q.x + dv.x * e, q.z + dv.z * e)
 	var p3: Vector3 = w.gp(q.x + PERP.x * e, q.z + PERP.z * e)
 	var tn := (p3 - p).cross(p2 - p).normalized()
-	if tn.y < 0:
+	# verticale locale de l'astéroïde (et non la verticale du monde)
+	var up: Vector3 = w.up_at(p)
+	if tn.dot(up) < 0:
 		tn = -tn
-	var n: Vector3 = (tn * 0.5 + Vector3.UP * 0.5).normalized()
+	var n: Vector3 = (tn * 0.5 + up * 0.5).normalized()
 	var f := p2 - p
 	f = (f - n * f.dot(n)).normalized()
 	return {"p": p, "n": n, "f": f}
 
 
+# point du sol à la verticale (radiale) d'un point 3D
 func ground(p: Vector3) -> Vector3:
-	return w.gp(p.x, p.z)
+	return w.surf_point((p + Vector3(0, w.RC, 0)).normalized())
+
+
+# repère d'un fantassin couché ou debout, posé sur le sol réel : axe X = direction du corps, Y = normale du terrain
+func ground_frame(c: Vector3, fw: Vector3, half_len: float) -> Basis:
+	var up0: Vector3 = w.up_at(c)
+	var f0 := (fw - up0 * fw.dot(up0)).normalized()
+	var s0 := f0.cross(up0)
+	var pf := ground(c + f0 * half_len)
+	var pb := ground(c - f0 * half_len)
+	var pl := ground(c - s0 * 0.35)
+	var pr := ground(c + s0 * 0.35)
+	var fwd := (pf - pb).normalized()
+	var up := (pr - pl).cross(fwd).normalized()
+	if up.dot(up0) < 0.0:
+		up = -up
+	fwd = (fwd - up * fwd.dot(up)).normalized()
+	return Basis(fwd, up, fwd.cross(up))
+
+
+# demi-longueur et demi-écartement des chenilles d'un char (m)
+const TRACK_HL := 4.2
+const TRACK_HW := 2.15
+
+
+# pose d'un char sur le terrain : les 4 extrémités des chenilles touchent le sol
+func tank_pose(c: Vector3, fw: Vector3) -> Transform3D:
+	var up0: Vector3 = w.up_at(c)
+	var f0 := (fw - up0 * fw.dot(up0)).normalized()
+	var s0 := f0.cross(up0)
+	var pf := ground(c + f0 * TRACK_HL)
+	var pb := ground(c - f0 * TRACK_HL)
+	var pl := ground(c - s0 * TRACK_HW)
+	var pr := ground(c + s0 * TRACK_HW)
+	var fwd := (pf - pb).normalized()
+	var up := (pr - pl).cross(fwd).normalized()
+	if up.dot(up0) < 0.0:
+		up = -up
+	fwd = (fwd - up * fwd.dot(up)).normalized()
+	var o := (pf + pb + pl + pr) * 0.25
+	# une bosse sous le milieu du char ne doit pas traverser la caisse
+	var gc := ground(c)
+	var d := (gc - o).dot(up)
+	if d > 0.0:
+		o += up * d
+	return Transform3D(Basis(fwd, up, fwd.cross(up)), o)
 
 
 # ================================================================ formations
@@ -540,11 +594,14 @@ func lane_free(lane: float, s: float, k: String) -> bool:
 	return true
 
 
-func spawn(side: String, k: String, s := -99.0) -> bool:
+func spawn(side: String, k: String, s := -99.0, want_lane = null) -> bool:
 	if s == -99.0:
 		s = -0.05 if side == "b" else 1.05
 	var lanes := LANES.duplicate()
 	lanes.shuffle()
+	if want_lane != null:
+		lanes.erase(want_lane)
+		lanes.push_front(want_lane)
 	var lane = null
 	for l in lanes:
 		if lane_free(l, s, k):
@@ -597,10 +654,40 @@ func spawn(side: String, k: String, s := -99.0) -> bool:
 			add_child(h)
 			F.tanks.append({"h": h, "tu": tu, "br": br, "rec": 0.0})
 			F.tcool.append(randf_range(0, 3.2))
+	# colonie : les renforts sortent du hangar le plus proche et marchent jusqu'à leur couloir du front
+	if side == "b" and s < 0.0 and w.HANGARS.size() > 0:
+		var entry: Vector3 = frame(s, lane).p
+		var best: Dictionary = w.HANGARS[0]
+		for hg in w.HANGARS:
+			if (hg.door as Vector3).distance_to(entry) < (best.door as Vector3).distance_to(entry):
+				best = hg
+		var a: Vector2 = w.planar(best.door)
+		var b: Vector2 = w.planar(entry)
+		F.tr = {"a": a, "b": b, "d": 0.0, "dc": 0.0, "L": maxf(a.distance_to(b), 1.0)}
 	FORM.append(F)
-	upd_frame(F)
+	if F.has("tr"):
+		tr_frame(F)
+	else:
+		upd_frame(F)
 	recompute(F)
 	return true
+
+
+# position d'une formation en route du hangar vers le front (chemin à plat, posé sur le sol)
+func tr_frame(F: Dictionary) -> void:
+	var tr: Dictionary = F.tr
+	var u: float = clampf(tr.d / tr.L, 0.0, 1.0)
+	var q: Vector2 = (tr.a as Vector2).lerp(tr.b, u)
+	var q2: Vector2 = (tr.a as Vector2).lerp(tr.b, minf(1.0, u + 2.0 / tr.L))
+	if q2.distance_to(q) < 0.5:
+		q2 = q + ((tr.b as Vector2) - (tr.a as Vector2)).normalized() * 2.0
+	var p: Vector3 = w.gp(q.x, q.y)
+	var p2: Vector3 = w.gp(q2.x, q2.y)
+	var n: Vector3 = w.up_at(p)
+	var f := p2 - p
+	F.p = p
+	F.n = n
+	F.f = (f - n * f.dot(n)).normalized()
 
 
 func upd_frame(F: Dictionary) -> void:
@@ -621,6 +708,9 @@ func recompute(F: Dictionary) -> void:
 	var fight: bool = F.state != "march" and F.kind != "robot" and F.kind != "tank"
 	# au contact, l'unité se disperse (espacement plus large)
 	var spread: float = 1.0 if F.state == "march" or F.kind == "tank" else 1.6
+	# en route depuis le hangar : formation resserrée
+	if F.has("tr"):
+		spread = 0.55
 	for i in F.alive:
 		var q: Vector3 = F.p + fw * ox[i] * spread + side * oz[i] * spread
 		cov[i] = 0
@@ -633,8 +723,30 @@ func recompute(F: Dictionary) -> void:
 				cov[i] = 1
 		pos[i] = q
 	separate(F, pos)
+	# chaque fantassin est posé et orienté sur le sol réel sous lui (un corps couché ne doit pas s'enfoncer)
+	var mb: Array = F.get("mb", [])
+	mb.resize(pos.size())
+	# debout : aligné sur la pesanteur (vers le centre de masse de l'astéroïde), et non sur la pente
+	var mg: Array = F.get("mg", [])
+	mg.resize(pos.size())
+	var mgo := PackedVector3Array()
+	mgo.resize(pos.size())
 	for i in F.alive:
 		pos[i] = ground(pos[i])
+		if F.kind != "tank":
+			var yaw := (hash_f(i * 13 + 1) - 0.5) * 0.7
+			var fwi := fw.rotated(w.up_at(pos[i]), yaw)
+			mb[i] = ground_frame(pos[i], fwi, 1.1)
+			pos[i] += (mb[i] as Basis).y * 0.03
+			var g: Vector3 = w.grav_up(pos[i])
+			var fg := (fwi - g * fwi.dot(g)).normalized()
+			mg[i] = Basis(fg, g, fg.cross(g))
+			# sur une pente, les pieds côté montée ne doivent pas s'enfoncer : on relève de pente × demi-pied
+			var c := clampf(g.dot((mb[i] as Basis).y), 0.3, 1.0)
+			mgo[i] = g * (0.3 * sqrt(1.0 - c * c) / c)
+	F.mb = mb
+	F.mg = mg
+	F.mgo = mgo
 	F.pos = pos
 	F.cover = cov
 	F.s_cache = F.s
@@ -759,8 +871,10 @@ func kill_one(F: Dictionary) -> void:
 		dismember(F, p, n, (p - src).normalized())
 	else:
 		var D: Dictionary = DEAD[F.side + F.kind]
-		var b: Basis = Basis(n, randf() * TAU) * F.basis
-		var tf := Transform3D(b, p)
+		# le corps est couché à plat sur le sol réel, dans une direction au hasard
+		var g := ground(p)
+		var b: Basis = ground_frame(g, (F.basis as Basis).x.rotated(w.up_at(g), randf() * TAU), 1.0)
+		var tf := Transform3D(b, g + b.y * 0.03)
 		if D.list.size() < D.mm.cap:
 			D.list.append(tf)
 		else:
@@ -916,11 +1030,19 @@ func boom(p: Vector3, n: Vector3, k: float) -> void:
 func tracer(from: Vector3, to: Vector3, side: String, speed := 380.0, ric := false) -> void:
 	if TR.size() > 1500:
 		return
+	# un tir venant de l'extérieur s'écrase sur le bouclier du centre de commandement
+	var hit = w.shield_clip(from, to)
+	if hit != null:
+		to = hit
+		ric = false
 	var d := to - from
 	var L := d.length()
 	if L < 1.0:
 		return
-	TR.append({"p": from, "v": d / L * speed, "l": L / speed, "side": side, "ric": ric})
+	var t := {"p": from, "v": d / L * speed, "l": L / speed, "side": side, "ric": ric}
+	if hit != null:
+		t.sh = true
+	TR.append(t)
 
 
 # balle déviée : étincelle et nouvelle trajectoire courte
@@ -999,9 +1121,15 @@ func dismember(F: Dictionary, p: Vector3, n: Vector3, dirv: Vector3) -> void:
 
 
 func shell(from: Vector3, to: Vector3) -> void:
+	var hit = w.shield_clip(from, to)
+	if hit != null:
+		to = hit
 	var d := to - from
 	var L := d.length()
-	SHELLS.append({"p": from, "v": d / L * 240.0, "l": L / 240.0, "to": to})
+	var s := {"p": from, "v": d / L * 240.0, "l": L / 240.0, "to": to}
+	if hit != null:
+		s.sh = true
+	SHELLS.append(s)
 
 
 # ================================================================ boucle de simulation
@@ -1032,13 +1160,29 @@ func step(dt: float) -> void:
 	var bias := front - 0.5
 	if nb < 9 and randf() < dt * 0.09 * (1.0 + bias * 3.0):
 		spawn("b", mix())
-	if nr < 9 and randf() < dt * 0.08 * (1.0 - bias * 3.0):
-		spawn("r", mix())
+	# pirates : renforts uniquement par vaisseaux de débarquement (voir air())
+	if not kronos_dead and nr + DS.size() < 9 and DS.size() < 3 and randf() < dt * 0.08 * (1.0 - bias * 3.0):
+		request_drop()
 
 	for F in FORM:
 		if F.dead:
 			continue
 		F.moving = false
+		# en route depuis le hangar : marche jusqu'au couloir, sans combattre
+		if F.has("tr"):
+			var trd: Dictionary = F.tr
+			trd.d += float(F.K.speed) * dt
+			F.moving = true
+			if trd.d >= trd.L:
+				F.erase("tr")
+				upd_frame(F)
+				recompute(F)
+			else:
+				tr_frame(F)
+				if trd.d - trd.dc > 1.5:
+					recompute(F)
+					trd.dc = trd.d
+			continue
 		F.retarget -= dt
 		var dir: float = F.dir
 		var K: Dictionary = F.K
@@ -1165,7 +1309,10 @@ func step(dt: float) -> void:
 	for t in TR:
 		t.p += t.v * dt
 		t.l -= dt
-		if t.l <= 0 and t.ric:
+		if t.l <= 0 and t.has("sh"):
+			spr(t.p, Color(0.45, 0.85, 1.0), 2.2, 0.25)
+			w.shield_hit(t.p, 0.08)
+		elif t.l <= 0 and t.ric:
 			newric.append(t)
 	TR = TR.filter(func(x): return x.l > 0)
 	for t in newric:
@@ -1174,7 +1321,11 @@ func step(dt: float) -> void:
 		s.p += s.v * dt
 		s.l -= dt
 		if s.l <= 0:
-			boom(s.to, MIDN, 0.7)
+			if s.has("sh"):
+				spr(s.to, Color(0.5, 0.9, 1.0), 9.0, 0.4)
+				w.shield_hit(s.to, 1.2)
+			else:
+				boom(s.to, MIDN, 0.7)
 	SHELLS = SHELLS.filter(func(x): return x.l > 0)
 
 	# épaves fumantes
@@ -1213,9 +1364,13 @@ func air(dt: float) -> void:
 			cb += 1
 		else:
 			cr += 1
-	if cb < 4 and randf() < dt * 0.5:
+	# chasseurs de la colonie en vol : 2, plus les vaisseaux des flottes en patrouille défensive
+	var cap_b := 2
+	if w.strategy != null:
+		cap_b = mini(10, 2 + w.strategy.nships(w.strategy.def_ships()))
+	if cb < cap_b and randf() < dt * 0.5:
 		add_fighter("b")
-	if cr < 4 and randf() < dt * 0.5:
+	if not kronos_dead and cr < 4 and randf() < dt * 0.5:
 		add_fighter("r")
 	for f in FT:
 		if f.dead:
@@ -1223,6 +1378,18 @@ func air(dt: float) -> void:
 		f.t += f.w * dt
 		var p := fpos(f, f.t)
 		var q := fpos(f, f.t + f.w * 0.05)
+		# chasseurs de la colonie : décollage depuis un hangar, puis montée vers leur orbite
+		if f.has("l") and f.l < 1.0:
+			f.l = minf(1.0, f.l + dt / 6.0)
+			var e := smoothstep(0.0, 1.0, f.l)
+			var door: Vector3 = f.door
+			var up: Vector3 = w.up_at(door)
+			p = (door + up * (3.0 + 40.0 * e * e)).lerp(p, e)
+			q = p + (fpos(f, f.t) - p).normalized() + up * 0.3
+		# chasseurs pirates : le bouclier les empêche d'entrer
+		if f.side == "r":
+			p = w.shield_push(p, 15.0)
+			q = w.shield_push(q, 15.0)
 		f.g.position = p
 		aim_node(f.g, q - p)
 		f.cool -= dt
@@ -1234,14 +1401,23 @@ func air(dt: float) -> void:
 				if o.side != f.side and not o.dead and o.g.position.distance_to(p) < bd:
 					bd = o.g.position.distance_to(p)
 					best = o
+			# la colonie chasse en priorité les vaisseaux de débarquement (fragiles, chargés de troupes)
+			if f.side == "b":
+				for d in DS:
+					if not d.dead and d.g.position.distance_to(p) < 260.0:
+						best = d
+						break
 			if best != null:
 				tracer(p, best.g.position + Vector3(randf_range(-4, 4), randf_range(-4, 4), randf_range(-4, 4)), f.side, 600.0)
 				if randf() < 0.12:
 					best.hp -= 1
 					if best.hp <= 0 and not best.dead:
-						best.dead = true
-						boom(best.g.position, MIDN, 1.6)
-						best.g.queue_free()
+						if best.has("drop"):
+							ds_destroyed(best)
+						else:
+							best.dead = true
+							boom(best.g.position, MIDN, 1.6)
+							best.g.queue_free()
 	FT = FT.filter(func(x): return not x.dead)
 	for tu in TUR:
 		tu.cool -= dt
@@ -1251,8 +1427,10 @@ func air(dt: float) -> void:
 			if f.side == "r" and f.g.position.distance_to(tu.g.position) < bd:
 				bd = f.g.position.distance_to(tu.g.position)
 				tg = f
-		if tg == null and DS.size() > 0 and DS[0].g.position.distance_to(tu.g.position) < 260.0:
-			tg = DS[0]
+		for d in DS:
+			if not d.dead and d.g.position.distance_to(tu.g.position) < bd:
+				bd = d.g.position.distance_to(tu.g.position)
+				tg = d
 		if tg != null:
 			var tp: Vector3 = tg.g.position
 			var l: Vector3 = tu.hd.to_local(tp)
@@ -1264,31 +1442,69 @@ func air(dt: float) -> void:
 				if randf() < 0.03:
 					tg.hp -= 1
 					if tg.hp <= 0 and not tg.dead:
-						tg.dead = true
-						boom(tp, MIDN, 3.0 if tg.has("drop") else 1.6)
-						tg.g.queue_free()
-	# vaisseau pirate de débarquement
-	if DS.size() < 1 and randf() < dt * 0.025:
-		var g := MeshInstance3D.new()
-		g.mesh = FIGHTM["rbig"]
-		add_child(g)
-		DS.append({"g": g, "t": 0.0, "hp": 30, "dead": false, "drop": false})
+						if tg.has("drop"):
+							ds_destroyed(tg)
+						else:
+							tg.dead = true
+							boom(tp, MIDN, 1.6)
+							tg.g.queue_free()
+	# vaisseaux pirates de débarquement : seul moyen d'amener des troupes. Fragiles, ils se posent au bout du front,
+	# à l'opposé de la zone défendue par le centre de commandement, débarquent leur formation puis repartent.
 	for d in DS:
 		if d.dead:
 			continue
 		d.t += dt
-		var fr0 := frame(0.9, 0.0)
-		var h: float = 160.0 - d.t * 25.0 if d.t < 6 else (8.0 if d.t < 10 else 8.0 + (d.t - 10) * 25.0)
-		var sd: Vector3 = PERP * ((6.0 - d.t) * 22.0 if d.t < 6 else 0.0)
-		d.g.position = fr0.p + fr0.n * h + sd
-		aim_node(d.g, -PERP)
-		if d.t > 7.0 and not d.drop:
-			d.drop = true
-			spawn("r", ["rifle", "rifle", "flame", "robot"].pick_random(), 0.9)
-		if d.t > 18:
+		var fr0 := frame(d.s, d.lane)
+		var land: Vector3 = fr0.p
+		var n: Vector3 = fr0.n
+		var away: Vector3 = fr0.f
+		var p: Vector3
+		var look: Vector3
+		if d.t < 9.0:
+			# approche : descente depuis l'espace, en venant du côté opposé à la base
+			var e: float = 1.0 - pow(1.0 - d.t / 9.0, 2.0)
+			p = land + n * lerpf(240.0, 6.0, e) + away * lerpf(280.0, 0.0, e)
+			look = -away - n * 0.6 * (1.0 - e)
+		elif d.t < 15.0:
+			p = land + n * 6.0
+			look = -away
+			if not d.drop and d.t > 10.0:
+				d.drop = spawn("r", d.kind, d.s, d.lane)
+				if d.drop:
+					for i in 8:
+						puff(land + Vector3(randf_range(-8, 8), 0.5, randf_range(-8, 8)), Color(0.55, 0.53, 0.5, 0.6), randf_range(4, 8), 2.0, n * 1.5)
+		else:
+			# redécollage (si personne n'a pu débarquer, les troupes restent à bord)
+			var u: float = (d.t - 15.0) / 8.0
+			p = land + n * (6.0 + u * u * 280.0) + away * u * 140.0
+			look = away + n * 0.5
+		d.g.position = p
+		aim_node(d.g, look)
+		if d.t > 23.0:
 			d.dead = true
 			d.g.queue_free()
 	DS = DS.filter(func(x): return not x.dead)
+
+
+# nouveau vaisseau de débarquement pirate, chargé d'une formation
+func request_drop(s := -1.0) -> void:
+	var g := MeshInstance3D.new()
+	g.mesh = FIGHTM["rbig"]
+	add_child(g)
+	DS.append({"g": g, "t": 0.0, "hp": 4, "dead": false, "drop": false, "s": s if s >= 0.0 else randf_range(0.88, 0.98), "lane": LANES.pick_random(), "kind": mix()})
+
+
+# vaisseau de débarquement abattu : s'il n'a pas encore débarqué, toute la formation à bord est perdue
+func ds_destroyed(d: Dictionary) -> void:
+	d.dead = true
+	var p: Vector3 = d.g.position
+	boom(p, MIDN, 3.0)
+	for i in 6:
+		ball(p, Color(0.15, 0.15, 0.15, 0.8), randf_range(2.0, 4.0), 3.0, Vector3(randf_range(-6, 6), randf_range(-6, 6), randf_range(-6, 6)), false)
+	if not d.drop:
+		kills["b"] += int(KIND[d.kind].n)
+	ds_down += 1
+	d.g.queue_free()
 
 
 func add_fighter(side: String) -> void:
@@ -1296,8 +1512,13 @@ func add_fighter(side: String) -> void:
 	g.mesh = FIGHTM[side]
 	add_child(g)
 	var R := randf_range(110, 240)
-	FT.append({"side": side, "g": g, "t": randf_range(0, 6), "R": R, "h": randf_range(55, 130),
-		"w": (60.0 / R) * (1.0 if randf() < 0.5 else -1.0), "tilt": randf_range(-0.6, 0.6), "hp": 4, "cool": randf_range(0, 1), "dead": false})
+	var f := {"side": side, "g": g, "t": randf_range(0, 6), "R": R, "h": randf_range(55, 130),
+		"w": (60.0 / R) * (1.0 if randf() < 0.5 else -1.0), "tilt": randf_range(-0.6, 0.6), "hp": 4, "cool": randf_range(0, 1), "dead": false}
+	# la colonie déploie ses chasseurs depuis ses hangars
+	if side == "b" and w.HANGARS.size() > 0:
+		f.l = 0.0
+		f.door = w.HANGARS.pick_random().door
+	FT.append(f)
 
 
 # ================================================================ rendu (instanciation)
@@ -1328,14 +1549,24 @@ func render(dt: float) -> void:
 		MM[key].n = 0
 	for F in FORM:
 		var shift: Vector3 = F.f_cache * ((F.s - F.s_cache) * RL)
+		if F.has("tr"):
+			shift = F.f_cache * (float(F.tr.d) - float(F.tr.dc))
 		var b: Basis = F.basis
 		var pos: PackedVector3Array = F.pos
 		if F.kind == "tank":
 			var T = F.target
+			var fwt: Vector3 = b.x
 			for i in F.alive:
 				var t: Dictionary = F.tanks[i]
-				t.h.basis = b
-				t.h.position = pos[i] + shift
+				var tp := tank_pose(pos[i] + shift, fwt)
+				# orientation lissée : le char bascule doucement en franchissant une bosse
+				if t.has("q"):
+					var q: Quaternion = (t.q as Quaternion).slerp(tp.basis.get_rotation_quaternion(), minf(1.0, dt * 8.0))
+					t.q = q
+				else:
+					t.q = tp.basis.get_rotation_quaternion()
+				t.h.basis = Basis(t.q as Quaternion)
+				t.h.position = tp.origin
 				if T != null:
 					var l: Vector3 = t.h.to_local(T.p)
 					var want := atan2(-l.z, l.x)
@@ -1348,7 +1579,9 @@ func render(dt: float) -> void:
 		var rate := 3.2 if F.kind == "robot" else 4.6
 		var cov: PackedByteArray = F.cover
 		var soldier: bool = F.kind != "robot"
-		var nn: Vector3 = F.n
+		var mbs: Array = F.mb
+		var mgs: Array = F.mg
+		var mgos: PackedVector3Array = F.mgo
 		for i in F.alive:
 			var fi := 4
 			var hv := hash_f(i * 7 + 3)
@@ -1365,8 +1598,11 @@ func render(dt: float) -> void:
 				fi = int(time * rate + ph[i]) % 4
 			elif hv < 0.25 and soldier:
 				fi = 8
-			var bi: Basis = Basis(nn, (hash_f(i * 13 + 1) - 0.5) * 0.7) * b
-			put_inst(MM[base + str(fi)], bi, pos[i] + shift)
+			# couché (pose 8) : à plat sur le sol ; debout, à genoux ou en marche : droit selon la pesanteur
+			if fi == 8:
+				put_inst(MM[base + str(fi)], mbs[i], pos[i] + shift)
+			else:
+				put_inst(MM[base + str(fi)], mgs[i], pos[i] + shift + mgos[i])
 	# traçantes
 	var tb := Basis()
 	for t in TR:
@@ -1418,7 +1654,8 @@ func render(dt: float) -> void:
 				pc.a = f.a0 * pow(1.0 - k, 1.4)
 				f.mat.albedo_color = pc
 			"deb":
-				f.v -= f.n * 9.0 * dt
+				# gravité réelle de l'astéroïde (microgravité) : les débris rapides partent dans l'espace
+				f.v += w.grav_at(f.o.position) * dt
 				f.o.position += f.v * dt
 				f.o.rotate_x(dt * 6)
 				f.o.rotate_y(dt * 4)
@@ -1426,7 +1663,7 @@ func render(dt: float) -> void:
 				f.o.light_energy = f.e * maxf(0.0, 1.0 - k)
 			"part":
 				if not f.rest:
-					f.v -= f.n * 5.0 * dt
+					f.v += w.grav_at(f.o.position) * dt
 					f.o.position += f.v * dt
 					f.o.rotate(f.av.normalized(), f.av.length() * dt)
 					var a: float = w.alt(f.o.position)
@@ -1457,4 +1694,4 @@ func stats() -> Dictionary:
 		m[k] = m.get(k, 0) + F.alive.size()
 		fs += F.s
 		n += 1
-	return {"f": f, "m": m, "wave": wave, "kills": kills, "front": fs / n if n > 0 else 0.5}
+	return {"f": f, "m": m, "wave": wave, "kills": kills, "front": fs / n if n > 0 else 0.5, "ds_down": ds_down, "ds": DS.size()}
