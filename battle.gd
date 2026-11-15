@@ -17,7 +17,7 @@ var KIND := {
 	"rifle": {"n": 30, "cols": 10, "spx": 4.2, "spz": 3.6, "hp": 10.0, "speed": 2.2, "rng": 110.0, "dps": 0.12, "fire": 0.5, "h": 1.35},
 	"flame": {"n": 12, "cols": 6, "spx": 4.0, "spz": 3.8, "hp": 14.0, "speed": 2.3, "rng": 28.0, "dps": 1.1, "fire": 0.0, "h": 1.2},
 	"robot": {"n": 6, "cols": 3, "spx": 6.0, "spz": 6.0, "hp": 90.0, "speed": 1.8, "rng": 120.0, "dps": 0.9, "fire": 1.4, "h": 1.9},
-	"tank": {"n": 2, "cols": 2, "spx": 16.0, "spz": 14.0, "hp": 500.0, "speed": 3.0, "rng": 220.0, "dps": 13.0, "fire": 0.31, "h": 2.4},
+	"tank": {"n": 2, "cols": 2, "spx": 16.0, "spz": 14.0, "hp": 500.0, "speed": 3.0, "rng": 220.0, "dps": 13.0, "fire": 0.31, "h": 3.4},
 }
 var MULT := {
 	"rifle": {"rifle": 1.0, "flame": 1.0, "robot": 0.35, "tank": 0.03},
@@ -174,47 +174,57 @@ func b_end(emis_mat: Material) -> ArrayMesh:
 
 # ================================================================ modèles
 func trooper(C: Dictionary, flame: bool, sw: float) -> void:
+	# fantassin lourd : armure camouflée, grosses épaulières, casque à rebord, masque à gaz, sac à dos
 	for sd in [-1.0, 1.0]:
-		bpush(Transform3D(Basis(Vector3(0, 0, 1), sw * sd), Vector3(0, 0.95, 0.12 * sd)))
-		bx(0, -0.22, 0, 0.17, 0.44, 0.17, C.suit)
-		bx(0.02, -0.18, 0, 0.19, 0.26, 0.19, C.armor)
-		bx(0.09, -0.47, 0, 0.08, 0.13, 0.15, C.plate)
-		bx(0.01, -0.68, 0, 0.16, 0.36, 0.16, C.armor)
-		bx(0.05, -0.89, 0, 0.27, 0.12, 0.17, C.dark)
+		bpush(Transform3D(Basis(Vector3(0, 0, 1), sw * sd), Vector3(0, 0.95, 0.13 * sd)))
+		bx(0, -0.2, 0, 0.19, 0.42, 0.19, C.c2 if sd > 0 else C.c1)
+		bx(0.1, -0.46, 0, 0.1, 0.15, 0.17, C.c3)
+		bx(0.01, -0.67, 0, 0.17, 0.36, 0.17, C.c1)
+		bx(0.05, -0.88, 0, 0.29, 0.14, 0.2, C.dark)
 		bpop()
-	bx(0, 1.0, 0, 0.3, 0.16, 0.36, C.suit)
-	bx(0, 1.07, 0, 0.32, 0.06, 0.4, C.gear)
-	bx(0, 1.3, 0, 0.3, 0.42, 0.4, C.suit)
-	bx(0.05, 1.33, 0, 0.26, 0.38, 0.44, C.armor)
-	bx(0.07, 1.42, 0, 0.24, 0.12, 0.46, C.plate)
-	for z in [-0.12, 0.0, 0.12]:
-		bx(0.19, 1.2, z, 0.06, 0.1, 0.09, C.gear)
+	bx(0, 1.0, 0, 0.32, 0.18, 0.38, C.suit)
+	bx(0, 1.08, 0, 0.34, 0.07, 0.42, C.gear)
+	for z in [-0.14, 0.0, 0.14]:
+		bx(0.19, 1.05, z, 0.07, 0.12, 0.1, C.gear)
+	bx(0, 1.32, 0, 0.32, 0.44, 0.44, C.suit)
+	bx(0.06, 1.34, 0, 0.27, 0.42, 0.46, C.c1)
+	bx(0.11, 1.45, 0.09, 0.22, 0.15, 0.22, C.c2)
+	bx(0.11, 1.24, -0.08, 0.22, 0.12, 0.2, C.c3)
 	for sd in [-1.0, 1.0]:
-		sp(0.0, 1.47, 0.25 * sd, 0.13, C.plate, Vector3(1.05, 0.75, 1.0))
-		bx(0.03, 1.27, 0.26 * sd, 0.11, 0.3, 0.11, C.suit)
+		sp(0.0, 1.5, 0.29 * sd, 0.165, C.c3 if sd > 0 else C.c2, Vector3(1.15, 0.8, 1.0))
+		bx(0.0, 1.43, 0.33 * sd, 0.3, 0.08, 0.12, C.c1)
+		bx(0.03, 1.26, 0.3 * sd, 0.12, 0.3, 0.12, C.suit)
 	if flame:
 		for z in [-0.1, 0.1]:
-			cy(-0.27, 1.3, z, 0.1, 0.5, C.fuel)
-		bx(-0.27, 1.57, 0, 0.08, 0.05, 0.3, C.metal)
+			cy(-0.28, 1.3, z, 0.1, 0.52, C.fuel)
+		bx(-0.28, 1.58, 0, 0.08, 0.05, 0.3, C.metal)
 	else:
-		bx(-0.22, 1.3, 0, 0.17, 0.44, 0.34, C.gear)
-		bx(-0.3, 1.36, 0, 0.04, 0.2, 0.26, C.armor)
-		cy(-0.25, 1.75, 0.1, 0.008, 0.5, C.metal)
-	bx(0, 1.58, 0, 0.12, 0.08, 0.12, C.suit)
-	sp(0, 1.71, 0, 0.145, C.armor, Vector3(1.1, 1.0, 1.0))
-	bx(0.11, 1.7, 0, 0.08, 0.085, 0.2, C.visor, true)
-	cy(0.15, 1.62, 0, 0.035, 0.07, C.metal, "x")
-	bx(0.2, 1.17, 0.2, 0.3, 0.1, 0.1, C.armor)
-	bx(0.2, 1.19, -0.16, 0.3, 0.1, 0.1, C.armor)
+		bx(-0.25, 1.32, 0, 0.22, 0.5, 0.4, C.gear)
+		bx(-0.37, 1.24, 0, 0.05, 0.22, 0.3, C.c2)
+		cy(-0.26, 1.62, 0, 0.08, 0.4, C.c2, "z")
+		cy(-0.3, 1.85, 0.12, 0.008, 0.5, C.metal)
+	# tête : casque à rebord, masque à gaz à deux lentilles, cartouche filtrante et tuyau
+	bx(0, 1.6, 0, 0.12, 0.08, 0.12, C.suit)
+	sp(0, 1.75, 0, 0.16, C.c1, Vector3(1.1, 0.82, 1.05))
+	bx(-0.02, 1.69, 0, 0.38, 0.035, 0.36, C.c1)
+	bx(0.11, 1.66, 0, 0.09, 0.13, 0.19, C.dark)
+	for sd in [-1.0, 1.0]:
+		sp(0.16, 1.69, 0.055 * sd, 0.036, C.visor, Vector3.ONE, true)
+	cy(0.2, 1.6, 0, 0.05, 0.09, C.metal, "x")
+	cy(0.13, 1.48, 0.07, 0.025, 0.22, C.metal)
+	# bras et arme
+	bx(0.2, 1.17, 0.2, 0.3, 0.1, 0.1, C.c1)
+	bx(0.2, 1.19, -0.16, 0.3, 0.1, 0.1, C.c1)
 	if flame:
 		cy(0.48, 1.16, 0.03, 0.05, 0.62, C.metal, "x")
 		cy(0.81, 1.16, 0.03, 0.035, 0.08, C.dark, "x")
 		bx(0.32, 1.08, 0.03, 0.08, 0.12, 0.07, C.metal)
 	else:
-		bx(0.38, 1.19, 0.03, 0.86, 0.09, 0.06, C.dark)
-		bx(0.3, 1.1, 0.03, 0.08, 0.15, 0.05, C.dark)
-		bx(0.3, 1.26, 0.03, 0.17, 0.05, 0.05, C.metal)
-		cy(0.86, 1.19, 0.03, 0.02, 0.2, C.metal, "x")
+		bx(0.42, 1.2, 0.03, 0.82, 0.12, 0.08, C.dark)
+		bx(0.3, 1.09, 0.03, 0.08, 0.16, 0.06, C.dark)
+		cy(0.26, 1.3, 0.03, 0.05, 0.18, C.metal, "x")
+		bx(0.55, 1.27, 0.03, 0.14, 0.03, 0.09, C.visor, true)
+		cy(0.92, 1.21, 0.03, 0.028, 0.26, C.metal, "x")
 
 
 func prone(C: Dictionary, flame: bool, cr: float) -> void:
@@ -241,8 +251,12 @@ func prone(C: Dictionary, flame: bool, cr: float) -> void:
 		bx(0.75, 0.22, 0.06, 0.85, 0.08, 0.06, C.dark)
 		bx(0.6, 0.29, 0.06, 0.16, 0.05, 0.05, C.metal)
 		cy(1.2, 0.22, 0.06, 0.02, 0.18, C.metal, "x")
-	sp(0.5, 0.3, 0, 0.145, C.armor, Vector3(1.05, 0.95, 1.0))
-	bx(0.6, 0.28, 0, 0.06, 0.08, 0.2, C.visor, true)
+	sp(0.5, 0.32, 0, 0.16, C.c1, Vector3(1.05, 0.85, 1.05))
+	bx(0.47, 0.27, 0, 0.36, 0.035, 0.36, C.c1)
+	bx(0.62, 0.25, 0, 0.09, 0.12, 0.19, C.dark)
+	for sd in [-1.0, 1.0]:
+		sp(0.67, 0.27, 0.055 * sd, 0.036, C.visor, Vector3.ONE, true)
+	cy(0.7, 0.18, 0, 0.05, 0.09, C.metal, "x")
 
 
 func robot(C: Dictionary, sw: float) -> void:
@@ -278,35 +292,85 @@ func robot(C: Dictionary, sw: float) -> void:
 		bx(0.18, 1.27, -1.05 + z, 0.08, 0.25, 0.06, C.dark)
 
 
+# char super-lourd (repère du modèle ×2,4 = mètres, environ 12 m × 7,4 m) : caissons de chenilles à avant incliné,
+# tourelles latérales à canons rotatifs, caisse à pont moteur, canon de caisse ; tourelle massive et canon à bobines
+func gatling(x: float, y: float, z: float, l: float, r: float, C: Dictionary) -> void:
+	cy(x - 0.05, y, z, r * 2.2, 0.1, C.metal, "x")
+	for k in 3:
+		var a := TAU * k / 3.0
+		cy(x + l * 0.5, y + cos(a) * r, z + sin(a) * r, r * 0.55, l, C.dark, "x")
+
+
 func tank_hull(C: Dictionary) -> void:
+	var cam := [C.c1, C.c2, C.c3]
 	for z in [-1.0, 1.0]:
-		bx(0, 0.38, z * 0.9, 3.6, 0.62, 0.46, C.dark)
-		for i in 6:
-			cy(-1.45 + i * 0.58, 0.36, z * 0.9, 0.25, 0.5, C.metal, "z")
-		bx(0, 0.75, z * 0.9, 3.5, 0.12, 0.5, C.armor)
+		var zc: float = z * 1.15
+		# chenille et galets
+		bx(0, 0.22, zc, 4.9, 0.4, 0.64, C.dark)
+		for i in 8:
+			cy(-2.1 + i * 0.6, 0.24, zc + z * 0.31, 0.19, 0.06, C.metal, "z")
+		# caisson de chenille, avant et arrière inclinés
+		bx(-0.1, 0.72, zc, 4.2, 0.62, 0.66, C.c1)
+		bpush(Transform3D(Basis(Vector3(0, 0, 1), -0.75), Vector3(2.05, 0.68, zc)))
+		bx(0, 0, 0, 0.8, 0.5, 0.66, C.c2)
+		bpop()
+		bpush(Transform3D(Basis(Vector3(0, 0, 1), 0.6), Vector3(-2.25, 0.66, zc)))
+		bx(0, 0, 0, 0.5, 0.45, 0.66, C.c2)
+		bpop()
+		# plaques de blindage latérales en camouflage
 		for i in 5:
-			bx(-1.2 + i * 0.6, 0.55, z * 1.16, 0.5, 0.3, 0.04, C.plate)
-	bx(0, 0.95, 0, 3.3, 0.5, 1.5, C.armor)
-	bx(1.45, 0.85, 0, 0.5, 0.4, 1.4, C.plate)
-	bx(-1.4, 1.05, 0, 0.5, 0.35, 1.3, C.gear)
-	bx(0.4, 1.21, 0.6, 0.3, 0.02, 0.06, C.acc)
-	for z in [-0.4, 0.4]:
-		bx(-1.62, 1.0, z, 0.08, 0.2, 0.3, C.visor, true)
+			bx(-1.6 + i * 0.75, 0.74, zc + z * 0.34, 0.7, 0.5, 0.04, cam[(i + (1 if z > 0 else 0)) % 3])
+		# tourelle latérale (sponson) à canons rotatifs
+		bx(0.45, 0.95, zc + z * 0.48, 0.7, 0.42, 0.34, C.c3)
+		sp(0.78, 0.95, zc + z * 0.5, 0.2, C.c1)
+		gatling(1.0, 0.95, zc + z * 0.5, 0.6, 0.06, C)
+		bx(1.0, 0.85, zc + z * 0.2, 0.05, 0.08, 0.12, C.visor, true)
+	# caisse centrale, glacis, pont moteur
+	bx(-0.2, 1.05, 0, 3.8, 0.56, 1.7, C.c1)
+	bpush(Transform3D(Basis(Vector3(0, 0, 1), -0.5), Vector3(1.75, 1.0, 0)))
+	bx(0, 0, 0, 0.8, 0.34, 1.64, C.c2)
+	bpop()
+	bx(-0.5, 1.34, -0.4, 1.2, 0.04, 0.7, C.c3)
+	bx(0.55, 1.34, 0.35, 1.0, 0.04, 0.6, C.c2)
+	for i in 7:
+		bx(-1.95 + i * 0.12, 1.36, 0, 0.06, 0.05, 1.2, C.dark)
+	for z in [-0.6, 0.6]:
+		cy(-2.0, 1.5, z, 0.09, 0.45, C.metal)
+		cy(-2.0, 1.74, z, 0.1, 0.05, C.dark)
+	# canon de caisse à bobines
+	cy(2.2, 1.0, 0.45, 0.07, 1.0, C.metal, "x")
+	for i in 3:
+		cy(1.95 + i * 0.18, 1.0, 0.45, 0.095, 0.05, C.visor, "x", true)
+	for z in [-0.55, 0.55]:
+		bx(2.12, 0.86, z, 0.04, 0.08, 0.14, C.visor, true)
+	cy(0.9, 1.37, -0.45, 0.16, 0.06, C.c3)
+	cy(-1.0, 1.6, 0.6, 0.01, 0.6, C.metal)
 
 
 func tank_turret(C: Dictionary) -> void:
-	sp(0, 0, 0, 1.0, C.armor, Vector3(1.05, 0.62, 0.85))
-	bx(-0.1, 0.25, 0, 1.4, 0.3, 1.3, C.plate)
-	cy(-0.25, 0.62, 0.15, 0.25, 0.1, C.metal)
-	bx(0.25, 0.6, -0.25, 0.18, 0.2, 0.12, C.metal)
-	bx(0.36, 0.62, -0.25, 0.04, 0.06, 0.08, C.visor, true)
-	bx(-0.7, 0.3, 0, 0.5, 0.45, 1.0, C.gear)
+	bx(0, 0.2, 0, 1.7, 0.4, 1.4, C.c1)
+	bx(-0.05, 0.47, 0, 1.4, 0.16, 1.15, C.c2)
+	for z in [-1.0, 1.0]:
+		bx(0.5, 0.2, z * 0.72, 0.62, 0.32, 0.06, C.c3)
+		for i in 3:
+			cy(0.45 + i * 0.1, 0.43, z * 0.6, 0.035, 0.12, C.dark, "x")
+	bx(0.9, 0.22, 0, 0.22, 0.36, 0.62, C.c3)
+	bx(-0.95, 0.25, 0, 0.4, 0.3, 1.2, C.c2)
+	cy(-0.3, 0.62, 0.32, 0.17, 0.14, C.c3)
+	bx(-0.18, 0.66, 0.32, 0.04, 0.04, 0.2, C.visor, true)
+	# tourelleau à canons rotatifs sur le toit
+	bx(0.15, 0.64, -0.3, 0.36, 0.16, 0.26, C.c1)
+	gatling(0.35, 0.66, -0.3, 0.5, 0.04, C)
+	cy(-0.75, 0.95, -0.5, 0.01, 0.8, C.metal)
 
 
 func tank_barrel(C: Dictionary) -> void:
-	cy(0.85, 0, 0, 0.12, 1.7, C.metal, "x")
-	cy(1.75, 0, 0, 0.17, 0.25, C.dark, "x")
-	cy(0.08, 0, 0, 0.22, 0.3, C.armor, "x")
+	# canon lourd à bobines lumineuses
+	cy(0.1, 0, 0, 0.14, 0.3, C.metal, "x")
+	cy(1.15, 0, 0, 0.11, 2.0, C.metal, "x")
+	for i in 4:
+		cy(0.55 + i * 0.36, 0, 0, 0.13, 0.06, C.visor, "x", true)
+	cy(2.2, 0, 0, 0.16, 0.22, C.dark, "x")
 
 
 func fighter(C: Dictionary) -> void:
@@ -347,10 +411,13 @@ func setup(world) -> void:
 	CHAR = StandardMaterial3D.new()
 	CHAR.albedo_color = Color(0.09, 0.08, 0.07)
 	CHAR.roughness = 1.0
-	PAL["b"] = {"armor": Color("2a5fd8"), "plate": Color("5d8ff2"), "suit": Color("1e2a44"), "gear": Color("e07a22"), "metal": Color("6a7078"),
-		"dark": Color("1c1e21"), "fuel": Color("7a2a18"), "acc": Color("40e0ff"), "visor": Color("5ff0ff"), "tr": Color(1.0, 0.72, 0.28)}
-	PAL["r"] = {"armor": Color("b8261e"), "plate": Color("e0483a"), "suit": Color("2e1414"), "gear": Color("4a4a50"), "metal": Color("5a5a62"),
-		"dark": Color("1f1914"), "fuel": Color("7a2a18"), "acc": Color("ffb040"), "visor": Color("6dff4a"), "tr": Color(0.55, 1.0, 0.3)}
+	# camouflage : vert olive pour la colonie, rouille pour les pirates (c1 dominante, c2 sombre, c3 claire)
+	PAL["b"] = {"armor": Color("3c4826"), "plate": Color("57553a"), "suit": Color("20261a"), "gear": Color("3a3424"), "metal": Color("3a3d3a"),
+		"dark": Color("1c1e1a"), "fuel": Color("7a2a18"), "acc": Color("40e0ff"), "visor": Color("5ff0ff"), "tr": Color(1.0, 0.72, 0.28),
+		"c1": Color("3c4826"), "c2": Color("283019"), "c3": Color("5a573a")}
+	PAL["r"] = {"armor": Color("552018"), "plate": Color("6e4430"), "suit": Color("22120e"), "gear": Color("302a2a"), "metal": Color("3c3c42"),
+		"dark": Color("1f1914"), "fuel": Color("7a2a18"), "acc": Color("ffb040"), "visor": Color("6dff4a"), "tr": Color(0.55, 1.0, 0.3),
+		"c1": Color("552018"), "c2": Color("381410"), "c3": Color("6e4430")}
 	for s in ["b", "r"]:
 		var em := StandardMaterial3D.new()
 		em.albedo_color = Color(0, 0, 0)
@@ -402,7 +469,7 @@ func setup(world) -> void:
 				trooper(C, k == "flame", 0.3)
 			var dm := b_end(EMIS[s])
 			DEAD[s + k] = {"mm": make_mm(dm, 1500), "list": [], "i": 0, "dirty": false}
-		var S := Transform3D(Basis.from_scale(Vector3(2.4, 1.6, 2.4)), Vector3.ZERO)
+		var S := Transform3D(Basis.from_scale(Vector3.ONE * 2.4), Vector3.ZERO)
 		b_begin(S)
 		tank_hull(C)
 		TANKM[s + "hull"] = b_end(EMIS[s])
@@ -412,6 +479,7 @@ func setup(world) -> void:
 		b_begin(S)
 		tank_barrel(C)
 		TANKM[s + "bar"] = b_end(EMIS[s])
+		load_tank_glb(s, C)
 		b_begin(Transform3D(Basis.from_scale(Vector3.ONE * 2.5), Vector3.ZERO))
 		fighter(C)
 		FIGHTM[s] = b_end(EMIS[s])
@@ -457,6 +525,43 @@ func setup(world) -> void:
 	for i in 5:
 		spawn("b", mix(), randf_range(0.06, 0.4))
 		spawn("r", mix(), randf_range(0.6, 0.94))
+
+
+# char modélisé dans Blender (tools/blender/char_lourd.py → models/char_lourd.glb) : remplace le modèle cuit en code s'il existe.
+# Les matériaux du fichier (camo, sombre, metal, lueur) sont remplacés par ceux du camp.
+const CAMO_SH := preload("res://shaders/camo.gdshader")
+func load_tank_glb(s: String, C: Dictionary) -> void:
+	if not ResourceLoader.exists("res://models/char_lourd.glb"):
+		return
+	var sc: PackedScene = load("res://models/char_lourd.glb")
+	if sc == null:
+		return
+	var root: Node = sc.instantiate()
+	var camo := ShaderMaterial.new()
+	camo.shader = CAMO_SH
+	camo.set_shader_parameter("c1", C.c1)
+	camo.set_shader_parameter("c2", C.c2)
+	camo.set_shader_parameter("c3", C.c3)
+	var sombre := StandardMaterial3D.new()
+	sombre.albedo_color = C.dark
+	sombre.roughness = 0.85
+	var metal := StandardMaterial3D.new()
+	metal.albedo_color = C.metal
+	metal.metallic = 0.6
+	metal.roughness = 0.45
+	var by := {"camo": camo, "sombre": sombre, "metal": metal, "lueur": EMIS[s]}
+	for pair in [["coque", "hull"], ["tourelle", "tur"], ["canon", "bar"]]:
+		var mi := root.find_child(pair[0], true, false) as MeshInstance3D
+		if mi == null or mi.mesh == null:
+			continue
+		var mesh: Mesh = mi.mesh.duplicate()
+		for i in mesh.get_surface_count():
+			var m := mesh.surface_get_material(i)
+			var nm: String = m.resource_name if m != null else ""
+			if by.has(nm):
+				mesh.surface_set_material(i, by[nm])
+		TANKM[s + pair[1]] = mesh
+	root.free()
 
 
 func mat(c: Color) -> Material:
@@ -539,8 +644,8 @@ func ground_frame(c: Vector3, fw: Vector3, half_len: float) -> Basis:
 
 
 # demi-longueur et demi-écartement des chenilles d'un char (m)
-const TRACK_HL := 4.2
-const TRACK_HW := 2.15
+const TRACK_HL := 5.6
+const TRACK_HW := 2.75
 
 
 # pose d'un char sur le terrain : les 4 extrémités des chenilles touchent le sol
@@ -641,13 +746,13 @@ func spawn(side: String, k: String, s := -99.0, want_lane = null) -> bool:
 			hull.mesh = TANKM[side + "hull"]
 			h.add_child(hull)
 			var tu := Node3D.new()
-			tu.position = Vector3(-0.1 * 2.4, 1.2 * 1.6, 0)
+			tu.position = Vector3(-0.3 * 2.4, 1.36 * 2.4, 0)
 			h.add_child(tu)
 			var tm := MeshInstance3D.new()
 			tm.mesh = TANKM[side + "tur"]
 			tu.add_child(tm)
 			var br := Node3D.new()
-			br.position = Vector3(0.75 * 2.4, 0.3 * 1.6, 0)
+			br.position = Vector3(1.0 * 2.4, 0.22 * 2.4, 0)
 			tu.add_child(br)
 			var bm := MeshInstance3D.new()
 			bm.mesh = TANKM[side + "bar"]
@@ -759,7 +864,7 @@ func recompute(F: Dictionary) -> void:
 func body_r(k: String) -> float:
 	match k:
 		"tank":
-			return 5.2
+			return 6.6
 		"robot":
 			return 1.1
 	return 0.55
@@ -953,7 +1058,7 @@ func tank_smoke(t: Dictionary, F: Dictionary) -> void:
 		puff(c + dv * randf_range(3.0, 6.0) + up * randf_range(0.6, 1.6), Color(0.48, 0.38, 0.3, 0.8), randf_range(6.0, 10.0), randf_range(2.6, 4.2),
 			dv * randf_range(4.0, 8.0) + up * randf_range(0.4, 1.6))
 	var fw: Vector3 = t.br.global_transform.basis.x.normalized()
-	var muz: Vector3 = t.br.to_global(Vector3(2.0 * 2.4, 0, 0))
+	var muz: Vector3 = t.br.to_global(Vector3(2.3 * 2.4, 0, 0))
 	for i in 5:
 		puff(muz + fw * (i * 2.2), Color(0.58, 0.55, 0.51, 0.75), randf_range(3.0, 6.5), randf_range(1.8, 3.0), fw * randf_range(3.0, 9.0) + up * randf_range(0.3, 1.2))
 
@@ -1234,7 +1339,7 @@ func step(dt: float) -> void:
 					if tc[i] <= 0:
 						tc[i] = randf_range(2.8, 3.6)
 						var t: Dictionary = F.tanks[i]
-						var from: Vector3 = t.br.to_global(Vector3(2.0 * 2.4, 0, 0))
+						var from: Vector3 = t.br.to_global(Vector3(2.3 * 2.4, 0, 0))
 						var to: Vector3 = mpos(T, rand_member(T)) + T.n * 1.0 + Vector3(randf_range(-3, 3), randf_range(-1, 1), randf_range(-3, 3))
 						var hitp = w.los_hit(from, to)
 						if hitp != null:
@@ -1573,7 +1678,7 @@ func render(dt: float) -> void:
 					var want := atan2(-l.z, l.x)
 					t.tu.rotation.y = lerp_angle(t.tu.rotation.y, want, minf(1.0, dt * 2.0))
 				t.rec = maxf(0.0, t.rec - dt)
-				t.br.position.x = 0.75 * 2.4 - t.rec * 2.0
+				t.br.position.x = 1.0 * 2.4 - t.rec * 2.0
 			continue
 		var ph: PackedFloat32Array = F.ph
 		var base: String = F.side + F.kind

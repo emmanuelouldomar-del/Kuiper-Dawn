@@ -1070,6 +1070,8 @@ func _face_task(f: int) -> void:
 	for j in W:
 		for i in W:
 			var d := cube_dir(f, -1.0 + 2.0 * (i - 1) / N, -1.0 + 2.0 * (j - 1) / N)
+			# facettes irrégulières : sommet décalé le long de la surface (il reste exactement sur le sol)
+			d = facet_jitter(d, N)
 			var e := lobe_eval(d) if _pl_lobe else surf_eval(d)
 			P[j * W + i] = C + d * e.x
 			S[j * W + i] = e.y
@@ -1113,13 +1115,30 @@ func _face_task(f: int) -> void:
 			var b := a + 1
 			var c := a + N + 1
 			var dd := c + 1
-			# sens horaire vu de l'extérieur (faces avant pour Godot)
-			I[w] = a; I[w + 1] = c; I[w + 2] = b
-			I[w + 3] = b; I[w + 4] = c; I[w + 5] = dd
+			# sens horaire vu de l'extérieur (faces avant pour Godot) ; diagonale tirée au hasard (facettes moins régulières)
+			if (((i * 73856093) ^ (j * 19349663) ^ (f * 83492791)) & 4) == 0:
+				I[w] = a; I[w + 1] = c; I[w + 2] = b
+				I[w + 3] = b; I[w + 4] = c; I[w + 5] = dd
+			else:
+				I[w] = a; I[w + 1] = c; I[w + 2] = dd
+				I[w + 3] = a; I[w + 4] = dd; I[w + 5] = b
 			w += 6
 	_mtx.lock()
 	_faces[f] = [V, NR, UV, CO, I]
 	_mtx.unlock()
+
+
+# facettes irrégulières (style astéroïde à facettes) : décale une direction du maillage le long de la surface,
+# d'au plus ~0,4 maille, avec un bruit continu (le même sommet reçoit le même décalage sur deux faces voisines du cube)
+var NZ_FACET: FastNoiseLite = null
+func facet_jitter(d: Vector3, n: int) -> Vector3:
+	if NZ_FACET == null:
+		return d
+	var fq := float(n) * 0.9
+	var p := d * fq
+	var jv := Vector3(NZ_FACET.get_noise_3dv(p), NZ_FACET.get_noise_3dv(p + Vector3(31.7, 0, 0)), NZ_FACET.get_noise_3dv(p + Vector3(0, 57.3, 0)))
+	jv -= d * d.dot(jv)
+	return (d + jv * (0.75 * PI * 0.5 / n)).normalized()
 
 
 func planet_mesh(lobe: bool, n: int) -> ArrayMesh:
@@ -1186,12 +1205,18 @@ func float_noise_tex(n: int, freq: float) -> ImageTexture:
 
 
 func build_terrain() -> void:
+	if NZ_FACET == null:
+		NZ_FACET = FastNoiseLite.new()
+		NZ_FACET.noise_type = FastNoiseLite.TYPE_VALUE
+		NZ_FACET.frequency = 1.0
+		NZ_FACET.fractal_type = FastNoiseLite.FRACTAL_NONE
+		NZ_FACET.seed = 9
 	var sh := load("res://shaders/terrain.gdshader")
 	var nt := float_noise_tex(256, 0.024)
-	# mailles d’environ 6 m (style low-poly : facettes visibles)
-	var bodies := [[false, clampi(int(PI * 0.5 * RC / 4.0), 80, 190)]]
+	# mailles d’environ 6 m : facettes visibles (style « astéroïde à facettes »)
+	var bodies := [[false, clampi(int(PI * 0.5 * RC / 6.0), 54, 130)]]
 	if SH_LOBE_R > 0.0 and not LOBE_FUSED:
-		bodies.append([true, clampi(int(PI * 0.5 * lobe_radius() / 4.0), 48, 140)])
+		bodies.append([true, clampi(int(PI * 0.5 * lobe_radius() / 6.0), 32, 96)])
 	for b in bodies:
 		var lobe: bool = b[0]
 		var m := ShaderMaterial.new()

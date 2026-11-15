@@ -556,3 +556,47 @@ Retour de l'utilisateur : « le dessin est moche ». Il a fourni une vraie illus
   - Agrandissement : les 4 coins glissent vers le plein écran. À la fin, `set_flat` remet le moniteur dans la passerelle comme Control normal (interactif) ; il retourne dans sa texture dès le début de la réduction.
   - La souris ne passe pas dans les SubViewport : clic et curseur main sont gérés par `bridge._input` (`art_mon_at`, test du point dans le quadrilatère).
 - **Écrans supplémentaires** sur les autres moniteurs du dessin (créés seulement en mode illustration et s'ils figurent dans `cockpit.json`, dans `build_small_screens`, dessinés par `draw_deco`) : `data` (stocks, CRT ambre en haut à gauche), `net` (liaison, onde verte), `scan` (petit radar rond), `pop` (population, santé, moral, pollution), `time` (horloge de mission et vitesse, écran à cassette), `fleet` (flottes, hangar, colonies, raids), `kron` (Terre et arche, hologramme ambre étroit à droite), `cons` (téléscripteur qui fait défiler le dernier message).
+
+## 24. Modèles des soldats et des chars d'après une planche de référence (2026-11-15)
+L'utilisateur a fourni une planche (char super-lourd camouflé à plusieurs tourelles, fantassins en armure à masque à gaz). Les modèles sont **originaux**, inspirés du genre : ni noms ni éléments repris de la planche.
+- **Camouflage** (`PAL`, clés `c1` dominante, `c2` sombre, `c3` claire) : vert olive pour la colonie, rouille pour les pirates. Les lentilles, les bobines et les feux restent émissifs, à la couleur du camp (cyan colonie, vert pirates). Les teintes sont sombres exprès : à l'écran, elles ressortent plus claires.
+- **Fantassin** (`trooper`, `prone`) : jambières camouflées, genouillères, bottes, ceinture à poches, plastron, grosses épaulières, casque à rebord, **masque à gaz à deux lentilles lumineuses**, cartouche filtrante et tuyau, sac à dos avec paquetage roulé, fusil lourd avec repère lumineux.
+- **Char super-lourd** (`tank_hull`, `tank_turret`, `tank_barrel`, `gatling`), environ 12 × 7,4 m. Le repère du modèle est maintenant à l'**échelle uniforme ×2,4** (avant : 2,4 × 1,6 × 2,4).
+  - Caisse : caissons de chenilles à avant et arrière inclinés, 8 galets, plaques latérales camouflées, deux **tourelles latérales à canons rotatifs**, glacis, pont moteur à grilles, échappements, canon de caisse à bobines, phares.
+  - Tourelle massive avec bavette, lance-fumigènes, tourelleau, petit canon rotatif sur le toit et antenne.
+  - Canon lourd à 4 bobines lumineuses.
+  - Valeurs ajustées en conséquence : tourelle en (−0,3 ; 1,36) × 2,4, canon en (1,0 ; 0,22) × 2,4, bouche à 2,3 × 2,4, `TRACK_HL` = 5,6, `TRACK_HW` = 2,75, `body_r("tank")` = 6,6, `KIND.tank.h` = 3,4.
+  - `--verif-chars` : chars de −0,05 à +0,76 m.
+- **Gros plans de test** : `Godot --path . --script tools/gros_plans.gd -- <dossier>` fait apparaître un char et des fusiliers de chaque camp, puis enregistre `close_0..3.png` (char colonie, char pirate, fusiliers colonie et pirates). La caméra est pilotée par `main.target`, `main.dist` et `main.cb` (fixer `main.cam` ne sert à rien : `update_cam` l'écrase).
+
+## 25. Modèles 3D faits avec Blender (2026-11-15)
+- **Blender 5.3** est installé (gratuit, à la demande de l'utilisateur) dans `F:\Outils\Blender\blender.exe`. Contrairement à Real-ESRGAN, son lancement n'est pas bloqué par les permissions.
+- **Exception à la règle « tout est généré en code »** : les modèles détaillés sont produits par des **scripts Python pour Blender** versionnés dans `tools/blender/`, puis exportés en `.glb` dans `models/`. On ne retouche jamais le `.glb` à la main : on modifie le script et on relance.
+  - Char : `F:\Outils\Blender\blender.exe --background --python tools/blender/char_lourd.py -- <chemin absolu>/models/char_lourd.glb` (quelques secondes).
+  - Il faut ensuite relancer l'import Godot (`--headless --import`, fait par `build.ps1`).
+- **`char_lourd.py`** :
+  - pièces biseautées (modificateur Bevel appliqué), lissage par angle (35°) ;
+  - chenilles à maillons, galets et barbotins dentés, jupes boulonnées, canons rotatifs à 6 tubes, grilles du pont moteur, outils, jerricans ;
+  - 3 objets avec l'origine au pivot attendu par `battle.gd` : `coque` (au sol), `tourelle` (pivot en (−0,72 ; 3,264)), `canon` (tourillon en (2,4 ; 0,528), bouche à 5,52 m) ;
+  - repère du jeu : X vers l'avant, Y vers le haut, Z sur le côté ; dans Blender, `B(x, y, z) = (x, −z, y)`.
+  - Matériaux nommés `camo`, `sombre`, `metal` et `lueur`.
+- **`battle.load_tank_glb(s, C)`** charge `models/char_lourd.glb` s'il existe (sinon, il reste le modèle cuit en code de la section 24). Il duplique chaque maillage et remplace les matériaux par leur nom :
+  - `camo` → `shaders/camo.gdshader` (camouflage 3 tons `c1`/`c2`/`c3` du camp en bruit 3D dans le repère du modèle, grain, rugosité variable, `tone` = 0,55 pour assombrir) ;
+  - `sombre`, `metal` → StandardMaterial3D ;
+  - `lueur` → `EMIS[s]`.
+- Suite possible : fantassin, robot, chasseurs et bâtiments selon la même méthode ; textures CC0 (ambientCG, Poly Haven).
+
+## 26. Astéroïde à facettes ocre (2026-11-15)
+D'après une image de référence de l'utilisateur (astéroïde low-poly beige, facettes irrégulières, cratères, ombres violettes). Ce rendu remplace le régolithe gris de la section 20 ; le reste du monde (ciel, base, unités) ne change pas.
+- **Maillage** (`main.gd`) :
+  - mailles d'environ 6 m (`N` = π/2·RC/6, entre 54 et 130 ; lobe entre 32 et 96) ;
+  - **sommets décalés le long de la surface** (`facet_jitter`, bruit de valeur continu `NZ_FACET`, au plus ~0,4 maille) : chaque sommet reste exactement sur `surf_eval`, les collisions ne changent pas ;
+  - **diagonale de chaque maille tirée au hasard** (hachage de i, j et de la face) ; les triangles sont irréguliers.
+- **`terrain.gdshader`** réécrit :
+  - normale de facette (`dFdx` / `dFdy`) ; de loin, quand une facette fait moins d'un pixel (`fwidth`), elle passe en douceur à la normale lisse, pour éviter le scintillement ;
+  - **grandes facettes** : cellules de Voronoï 3D (`macro_cell`) d'environ 30 m de près et 110 m de loin ; chaque cellule incline la normale d'un angle constant (0,17), ce qui donne la mosaïque visible depuis l'orbite ;
+  - teintes ocre beige peu saturées (base 0,205 / 0,158 / 0,118 en linéaire), grandes plaques claires très douces (bruit à 0,0007 et 0,0019) ; un bruit plus fin faisait un marbrage façon camouflage ;
+  - légère variation de teinte par facette et par cellule ; cratères et pentes à peine assombris ; chemins plus clairs ;
+  - **ombres violettes** : `EMISSION` = couleur × (0,38 ; 0,26 ; 0,62) × 0,22, visible seulement là où le soleil n'éclaire pas.
+- **Décor** (`toon.gdshader`) : la couleur de sommet ne donne plus que la luminosité ; la teinte ocre est imposée (`ochre`), avec la même lueur violette.
+- `--verif-chars` (cacahuète) : chars de −0,05 à +0,66 m, fantassins de −0,70 à +0,55 m. La mesure se fait par rapport à `surf_eval`, pas au maillage : avec des cordes de 6 m, l'écart visuel peut atteindre quelques dizaines de centimètres.
