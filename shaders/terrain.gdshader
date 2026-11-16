@@ -9,6 +9,7 @@ render_mode cull_disabled;
 
 uniform vec3 center = vec3(0.0);
 uniform vec3 tint = vec3(1.0);
+uniform float facettes = 0.0;   // 0 : sol lisse (demande du 2026-11-16) ; 1 : facettes de la section 26
 uniform sampler2D noise_tex : filter_linear_mipmap, repeat_enable;
 
 varying vec3 wpos;
@@ -73,7 +74,7 @@ void fragment() {
 	// de loin, les petites facettes font moins d'un pixel : on passe en douceur à la normale lisse (pas de scintillement)
 	float near_f = 1.0 - smoothstep(0.6, 2.5, px);
 	vec3 wb = normalize(mix(n, wn, near_f));
-	vec3 wf = normalize(wb + rt * 0.17);
+	vec3 wf = normalize(mix(n, normalize(wb + rt * 0.17), facettes));
 	// teintes (linéaires) : beige ocre peu saturé, plaques claires, ocre sombre
 	vec3 base = vec3(0.205, 0.158, 0.118);
 	vec3 light_c = vec3(0.29, 0.232, 0.178);
@@ -85,7 +86,7 @@ void fragment() {
 	// variation de teinte par facette et par grande facette
 	float fv = hash3(floor(wn * 61.0) + 0.5);
 	float cv = mix(hash3(mc.xyz + 23.9), hash3(mc2.xyz + 23.9), far_f);
-	col *= (1.0 + (fv - 0.5) * 0.14 * near_f) * (0.94 + cv * 0.12);
+	col *= mix(1.0, (1.0 + (fv - 0.5) * 0.14 * near_f) * (0.94 + cv * 0.12), facettes);
 	// cratères : fond plus sombre, rebord plus clair ; pentes plus sombres
 	col = mix(col, dark_c, clamp(-cr, 0.0, 1.0) * 0.32);
 	col = mix(col, light_c * 1.05, clamp(cr, 0.0, 1.0) * 0.22);

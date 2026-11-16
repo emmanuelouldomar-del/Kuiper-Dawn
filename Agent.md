@@ -600,3 +600,26 @@ D'après une image de référence de l'utilisateur (astéroïde low-poly beige, 
   - **ombres violettes** : `EMISSION` = couleur × (0,38 ; 0,26 ; 0,62) × 0,22, visible seulement là où le soleil n'éclaire pas.
 - **Décor** (`toon.gdshader`) : la couleur de sommet ne donne plus que la luminosité ; la teinte ocre est imposée (`ochre`), avec la même lueur violette.
 - `--verif-chars` (cacahuète) : chars de −0,05 à +0,66 m, fantassins de −0,70 à +0,55 m. La mesure se fait par rapport à `surf_eval`, pas au maillage : avec des cordes de 6 m, l'écart visuel peut atteindre quelques dizaines de centimètres.
+
+## 27. Décor rocheux fait avec Blender (2026-11-15)
+Le **sol reste généré en code** : forme aléatoire, collisions exactes via `surf_eval`, zones aplanies. Blender ne fournit que les objets posés dessus.
+- **`tools/blender/rochers.py`** → `models/rochers.glb` : `blender --background --python tools/blender/rochers.py -- <chemin absolu>/models/rochers.glb`. Les roches sont déformées par bruit, puis réduites par « Decimate » pour donner des facettes irrégulières. Pièces à l'échelle unité, posées sur z = 0 :
+  - `mesa_0..3` : plateaux à strates (de −0,7 à 0,9) ;
+  - `rocher_0..3` : blocs ;
+  - `aiguille_0..2` : aiguilles courbées d'environ 4,5 de haut ;
+  - `arche_0..1` : arches d'environ 5 × 3 ;
+  - `cristaux_0..1` : amas de prismes, avec le matériau `cristal`.
+- **`main.gd`** :
+  - `rock_glb(nom)` charge et met en cache les maillages du `.glb` (null s'il est absent ; on revient alors à `mesa_mesh` et `rock_mesh`) ;
+  - `peaks()` utilise `mesa_*` ;
+  - **`monuments()`** place les aiguilles et les arches (22 %) hors de la base et du couloir, sans chevauchement avec les plateaux ni avec les abris ;
+  - `decor()` utilise `rocher_*` pour les cailloux et les blocs, et ajoute des **amas de cristaux** (StandardMaterial bleu-vert, légère émission).
+- **`toon.gdshader`** : uniformes `hlo` et `hhi`. La roche s'éclaircit du pied au sommet, en hauteur locale du modèle (`toon_mat_h(lo, hi)`).
+- Gros plans de test : `Godot --path . --script tools/gros_plans_rochers.gd -- <dossier>` produit `rock_0..4.png` (arche, aiguille, plateau, cristaux, arche).
+
+## 28. Sol lissé (2026-11-16)
+Demande de l'utilisateur : « lisse l'astéroïde ». Les facettes de la section 26 sont **désactivées**, mais elles restent disponibles par réglage :
+- `main.FACETTES = false` : mailles revenues à 4 m (`N` entre 54 et 190, lobe entre 32 et 140), sans décalage des sommets (`facet_jitter` n'est plus appelé). Les diagonales tirées au hasard restent, sans effet visible.
+- `terrain.gdshader`, uniforme `facettes` (0 = lisse, réglé par `build_terrain`) : normale lissée, ni grandes facettes inclinées ni variation de teinte par facette.
+- Inchangés : teintes ocre beige, grandes plaques claires, ombres violettes, décor rocheux Blender (section 27, toujours à facettes).
+- Pour revenir aux facettes : `FACETTES := true`.

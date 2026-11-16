@@ -1071,7 +1071,8 @@ func _face_task(f: int) -> void:
 		for i in W:
 			var d := cube_dir(f, -1.0 + 2.0 * (i - 1) / N, -1.0 + 2.0 * (j - 1) / N)
 			# facettes irrégulières : sommet décalé le long de la surface (il reste exactement sur le sol)
-			d = facet_jitter(d, N)
+			if FACETTES:
+				d = facet_jitter(d, N)
 			var e := lobe_eval(d) if _pl_lobe else surf_eval(d)
 			P[j * W + i] = C + d * e.x
 			S[j * W + i] = e.y
@@ -1131,6 +1132,7 @@ func _face_task(f: int) -> void:
 # facettes irrégulières (style astéroïde à facettes) : décale une direction du maillage le long de la surface,
 # d'au plus ~0,4 maille, avec un bruit continu (le même sommet reçoit le même décalage sur deux faces voisines du cube)
 var NZ_FACET: FastNoiseLite = null
+const FACETTES := false        # sol à facettes (section 26) ; false : sol lisse (demande du 2026-11-16)
 func facet_jitter(d: Vector3, n: int) -> Vector3:
 	if NZ_FACET == null:
 		return d
@@ -1214,15 +1216,17 @@ func build_terrain() -> void:
 	var sh := load("res://shaders/terrain.gdshader")
 	var nt := float_noise_tex(256, 0.024)
 	# mailles d’environ 6 m : facettes visibles (style « astéroïde à facettes »)
-	var bodies := [[false, clampi(int(PI * 0.5 * RC / 6.0), 54, 130)]]
+	var cell := 6.0 if FACETTES else 4.0
+	var bodies := [[false, clampi(int(PI * 0.5 * RC / cell), 54, 190)]]
 	if SH_LOBE_R > 0.0 and not LOBE_FUSED:
-		bodies.append([true, clampi(int(PI * 0.5 * lobe_radius() / 6.0), 32, 96)])
+		bodies.append([true, clampi(int(PI * 0.5 * lobe_radius() / cell), 32, 140)])
 	for b in bodies:
 		var lobe: bool = b[0]
 		var m := ShaderMaterial.new()
 		m.shader = sh
 		m.set_shader_parameter("center", lobe_center() if lobe else Vector3(0, -RC, 0))
 		m.set_shader_parameter("noise_tex", nt)
+		m.set_shader_parameter("facettes", 1.0 if FACETTES else 0.0)
 		terr_mats.append(m)
 		var t := MeshInstance3D.new()
 		t.mesh = planet_mesh(lobe, b[1])
@@ -1629,7 +1633,8 @@ func peaks() -> void:
 	dice.randomize()
 	var meshes := []
 	for k in 4:
-		meshes.append(mesa_mesh(dice))
+		var gm := rock_glb("mesa_%d" % k)
+		meshes.append(gm if gm != null else mesa_mesh(dice))
 	var xf_by := [[], [], [], []]
 	var pr: Array[float] = []
 	var pg: Array[Vector3] = []
@@ -1665,14 +1670,79 @@ func peaks() -> void:
 			pr.append(rb)
 			pg.append(g0)
 			xf_by[dice.randi() % 4].append(ground_xf(q, Vector3(wdt, h, wdt), dice.randf() * TAU))
+	var mmat: Material = toon_mat_h(-0.4, 0.9) if rock_glb("mesa_0") != null else null
 	for k in 4:
-		mm_add(meshes[k], xf_by[k], null, true)
+		mm_add(meshes[k], xf_by[k], mmat, true)
+	if rock_glb("aiguille_0") != null:
+		monuments(dice, pg, pr, ksc)
 	decor(dice)
+
+
+# aiguilles et arches rocheuses (décor Blender), sans chevauchement avec les plateaux ni les abris
+func monuments(dice: RandomNumberGenerator, pg: Array[Vector3], pr: Array[float], ksc: float) -> void:
+	var xf := {}
+	var n := clampi(int(4.0 * PI * RC * RC / 30000.0), 10, 50)
+	var tries := 0
+	var placed := 0
+	while placed < n and tries < 4000:
+		tries += 1
+		var q := planar_of(rdir(dice))
+		if relief_mask(q.x, q.y) < 0.6:
+			continue
+		var g0 := gp(q.x, q.y)
+		if in_lobe(g0, 4.0):
+			continue
+		var arch := dice.randf() < 0.22
+		var nm: String = ("arche_%d" % dice.randi_range(0, 1)) if arch else ("aiguille_%d" % dice.randi_range(0, 2))
+		var s := (dice.randf_range(3.5, 7.0) if arch else dice.randf_range(2.0, 4.5)) * ksc
+		var rb := s * (2.8 if arch else 1.1)
+		var hit := false
+		for k in pg.size():
+			if pg[k].distance_to(g0) < rb + pr[k]:
+				hit = true
+				break
+		if hit or cover_near(g0, rb) != null:
+			continue
+		pg.append(g0)
+		pr.append(rb)
+		if not xf.has(nm):
+			xf[nm] = []
+		xf[nm].append(ground_xf(q, Vector3.ONE * s, dice.randf() * TAU, s * 0.1))
+		placed += 1
+	for nm in xf:
+		mm_add(rock_glb(nm), xf[nm], toon_mat_h(-0.3, 3.0 if String(nm).begins_with("arche") else 4.5), true)
+
+
+# décor modélisé dans Blender (tools/blender/rochers.py → models/rochers.glb) ; null si le fichier est absent
+var ROCK_GLB := {}
+func rock_glb(nm: String) -> Mesh:
+	if ROCK_GLB.is_empty():
+		ROCK_GLB["_"] = true
+		if ResourceLoader.exists("res://models/rochers.glb"):
+			var sc: PackedScene = load("res://models/rochers.glb")
+			if sc != null:
+				var r: Node = sc.instantiate()
+				for c in r.find_children("*", "MeshInstance3D", true, false):
+					ROCK_GLB[String(c.name)] = (c as MeshInstance3D).mesh
+				r.free()
+	return ROCK_GLB.get(nm, null)
+
+
+# roche ocre du décor, plus sombre au pied (lo) et plus claire au sommet (hi), en hauteur locale du modèle
+func toon_mat_h(lo: float, hi: float) -> ShaderMaterial:
+	var m := toon_mat(Color(0.45, 0.45, 0.45))
+	m.set_shader_parameter("hlo", lo)
+	m.set_shader_parameter("hhi", hi)
+	return m
 
 
 func decor(dice: RandomNumberGenerator) -> void:
 	var area := 4.0 * PI * RC * RC
-	var ag := [rock_mesh(dice), rock_mesh(dice), rock_mesh(dice)]
+	var ag := []
+	for k in 3:
+		var gm := rock_glb("rocher_%d" % k)
+		ag.append(gm if gm != null else rock_mesh(dice))
+	var rmat: Material = toon_mat_h(-0.25, 0.7) if rock_glb("rocher_0") != null else null
 	var xa := [[], [], []]
 	var xc := []
 	var xp_o := []
@@ -1723,8 +1793,30 @@ func decor(dice: RandomNumberGenerator) -> void:
 			var q := c + Vector2(dice.randf_range(-1, 1), dice.randf_range(-1, 1)) * rz
 			xa[dice.randi() % 3].append(ground_xf(q, Vector3.ONE * dice.randf_range(0.3, 0.7), dice.randf() * TAU, 0.08))
 	for k in 3:
-		mm_add(ag[k], xa[k])
-	mm_add(rock_mesh(dice), xc, null, true)
+		mm_add(ag[k], xa[k], rmat)
+	var bigr := rock_glb("rocher_3")
+	mm_add(bigr if bigr != null else rock_mesh(dice), xc, rmat, true)
+	# amas de cristaux (décor Blender), légèrement lumineux
+	if rock_glb("cristaux_0") != null:
+		var xcr := [[], []]
+		var n_cr := clampi(int(area / 12000.0), 20, 120)
+		for i in n_cr * 3:
+			if xcr[0].size() + xcr[1].size() >= n_cr:
+				break
+			var q := planar_of(rdir(dice))
+			if not free_spot.call(q, 150.0, 1.5):
+				continue
+			var s := dice.randf_range(0.8, 2.2)
+			xcr[dice.randi() % 2].append(ground_xf(q, Vector3.ONE * s, dice.randf() * TAU, 0.05))
+		var cm := StandardMaterial3D.new()
+		cm.albedo_color = Color(0.12, 0.42, 0.42)
+		cm.emission_enabled = true
+		cm.emission = Color(0.15, 0.75, 0.7)
+		cm.emission_energy_multiplier = 0.3
+		cm.roughness = 0.15
+		cm.metallic = 0.3
+		for k in 2:
+			mm_add(rock_glb("cristaux_%d" % k), xcr[k], cm)
 	var pm := pebble_mesh()
 	mm_add(pm, xp_o, toon_mat(Color("6a6660")))
 	mm_add(pm, xp_b, toon_mat(Color("45423e")))
