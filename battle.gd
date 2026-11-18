@@ -522,9 +522,17 @@ func setup(world) -> void:
 		w.add_flat_zone(fr.p, 4.5)
 		TUR.append({"g": g, "hd": hd, "cool": 0.0})
 
-	for i in 5:
-		spawn("b", mix(), randf_range(0.06, 0.4))
-		spawn("r", mix(), randf_range(0.6, 0.94))
+	# survie : pas de bataille avant la phase 4 (les tourelles anti-aériennes n'apparaissent qu'avec la guerre)
+	for tu in TUR:
+		(tu.g as Node3D).visible = war_on()
+	if war_on():
+		for i in 5:
+			spawn("b", mix(), randf_range(0.06, 0.4))
+			spawn("r", mix(), randf_range(0.6, 0.94))
+
+
+func war_on() -> bool:
+	return w.vie == null or w.vie.at_war()
 
 
 # char modélisé dans Blender (tools/blender/char_lourd.py → models/char_lourd.glb) : remplace le modèle cuit en code s'il existe.
@@ -1264,10 +1272,11 @@ func step(dt: float) -> void:
 	else:
 		front = (fb + fr) / 2
 	var bias := front - 0.5
-	if nb < 9 and randf() < dt * 0.09 * (1.0 + bias * 3.0):
+	var peace := not war_on()
+	if not peace and nb < 9 and randf() < dt * 0.09 * (1.0 + bias * 3.0):
 		spawn("b", mix())
 	# pirates : renforts uniquement par vaisseaux de débarquement (voir air())
-	if not kronos_dead and nr + DS.size() < 9 and DS.size() < 3 and randf() < dt * 0.08 * (1.0 - bias * 3.0):
+	if not peace and not kronos_dead and nr + DS.size() < 9 and DS.size() < 3 and randf() < dt * 0.08 * (1.0 - bias * 3.0):
 		request_drop()
 
 	for F in FORM:
@@ -1474,9 +1483,9 @@ func air(dt: float) -> void:
 	var cap_b := 2
 	if w.strategy != null:
 		cap_b = mini(10, 2 + w.strategy.nships(w.strategy.def_ships()))
-	if cb < cap_b and randf() < dt * 0.5:
+	if war_on() and cb < cap_b and randf() < dt * 0.5:
 		add_fighter("b")
-	if not kronos_dead and cr < 4 and randf() < dt * 0.5:
+	if war_on() and not kronos_dead and cr < 4 and randf() < dt * 0.5:
 		add_fighter("r")
 	for f in FT:
 		if f.dead:

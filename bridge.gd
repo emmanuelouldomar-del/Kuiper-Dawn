@@ -144,6 +144,11 @@ func setup(world, colony) -> void:
 	build_diplo()
 	build_ops()
 	build_survival()
+	# survie : l’onglet Survie (phase, objectifs, jauges) passe en premier
+	var st := tabs.get_node_or_null("Survie")
+	if st != null:
+		tabs.move_child(st, 0)
+		tabs.current_tab = 0
 	build_small_screens()
 	for p in [left, center, right, right2, diplo]:
 		var ov := Control.new()
@@ -1183,11 +1188,11 @@ func build_center() -> void:
 	vc.add_theme_constant_override("separation", 5)
 	build_side.add_child(vc)
 	vc.add_child(lbl("CONSTRUIRE EN SURFACE", CY, 12))
-	var info := lbl("Industrie polluante, extraction et stockage. Le chantier s’installe sur le prochain emplacement libre.", DIM, 11)
+	var info := lbl("Les bâtiments se débloquent phase après phase (objectifs : onglet Survie de la gestion). Le chantier s’installe sur le prochain emplacement libre.", DIM, 11)
 	info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	vc.add_child(info)
 	for t in C.BLD:
-		if t == "spatioport":
+		if t == "spatioport" or t == "capsule":
 			continue
 		var b := btn("", func(): C.build(t); refresh())
 		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
@@ -1535,7 +1540,7 @@ func refresh() -> void:
 	var sh := "EFFONDRÉ (%ds)" % int(ceil(w.SHD_DOWN)) if w.SHD_DOWN > 0.0 else "%d %%" % int(w.SHD_E)
 	lbl_shield.text = "Bouclier du centre de commandement : " + sh
 	lbl_shield.add_theme_color_override("font_color", BAD if w.SHD_DOWN > 0.0 else CY)
-	lbl_pop.text = "Habitants : %d / %d" % [int(C.pop), int(C.COLONY.housing)]
+	lbl_pop.text = "Habitants : %d / %d" % [int(C.pop), int(C.housing())]
 	lbl_morale.text = "Moral : %d %%" % int(C.morale)
 	bar_morale.value = C.morale
 	lbl_pol.text = "Pollution industrielle : %.1f (moral −%d)" % [C.pollution, int(C.pollution * C.COLONY.pollutionMorale)]
@@ -1556,6 +1561,8 @@ func refresh() -> void:
 		var b: Button = bld_btn[t]
 		b.text = "%s  (%d)\n%s\n%s" % [B.name, C.count(t), line2, ", ".join(fx)]
 		b.disabled = why != ""
+		# survie : seuls les bâtiments de la phase atteinte sont proposés
+		b.visible = int(B.get("ph", 1)) <= C.phase()
 	var sites: Array = []
 	for x in C.inst:
 		if not x.done:
@@ -2023,11 +2030,13 @@ func show_end(win: bool) -> void:
 	var vb := VBoxContainer.new()
 	vb.add_theme_constant_override("separation", 10)
 	p.add_child(vb)
-	vb.add_child(lbl("VICTOIRE" if win else "K-240 EST TOMBÉE", OK if win else BAD, 30))
+	vb.add_child(lbl("VICTOIRE" if win else ("LA COLONIE A PÉRI" if S.lose_txt != "" else "K-240 EST TOMBÉE"), OK if win else BAD, 30))
 	var txt := "Kronos est conquis : la menace pirate est anéantie et la ceinture de Kuiper est à vous."
 	if win and S.win_kind == "arche":
 		txt = "Le vaisseau-arche s’élance vers Alpha du Centaure. La ceinture de Kuiper, dernière station-service du Système solaire, a servi de tremplin à l’humanité."
-	if not win:
+	if not win and S.lose_txt != "":
+		txt = S.lose_txt
+	elif not win:
 		txt = "Le bouclier a cédé, la flotte pirate a imposé un blocus, ses troupes ont forcé le bunker d’accès et se sont battues dans les galeries jusqu’au centre de commandement."
 	var t := lbl(txt, TXT, 15)
 	t.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -2224,8 +2233,52 @@ func dbtn(t: String, cb: Callable) -> Button:
 
 
 # ---------------------------------------------------------------- survie à 40 UA et liaison avec la Terre (écran de gestion)
+var lbl_phase: Label
+var lbl_obj: Label
+var lbl_life: Label
+var bar_o2: ProgressBar
+var bar_bat: ProgressBar
+var bar_stab: ProgressBar
+var cap_btn: Button
+var mine_btn: Button
+var bunk_btn: Button
+var rep_btn: Button
+
+
+func gauge(vs: Control, title: String) -> ProgressBar:
+	vs.add_child(lbl(title, DIM, 11))
+	var b := ProgressBar.new()
+	b.custom_minimum_size.y = 9
+	b.show_percentage = false
+	vs.add_child(b)
+	return b
+
+
 func build_survival() -> void:
 	var vs := scroll_box(tabs, "Survie")
+	# phase, objectifs, actions de l'équipage
+	lbl_phase = lbl("", AMB, 15)
+	vs.add_child(lbl_phase)
+	lbl_obj = lbl("", TXT, 12)
+	lbl_obj.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	vs.add_child(lbl_obj)
+	var hb := HFlowContainer.new()
+	vs.add_child(hb)
+	cap_btn = btn("Réparer la capsule", func(): w.vie.repair_capsule(); refresh())
+	mine_btn = btn("", func(): w.vie.toggle_mining(); refresh())
+	bunk_btn = btn("", func(): w.vie.toggle_bunker(); refresh())
+	rep_btn = btn("", func(): w.vie.toggle_repair(); refresh())
+	for b in [cap_btn, mine_btn, bunk_btn, rep_btn]:
+		hb.add_child(b)
+	vs.add_child(HSeparator.new())
+	vs.add_child(lbl("SYSTÈMES DE SURVIE", CY, 12))
+	bar_o2 = gauge(vs, "Oxygène")
+	bar_bat = gauge(vs, "Batteries")
+	bar_stab = gauge(vs, "Stabilité de la rotation")
+	lbl_life = lbl("", TXT, 12)
+	lbl_life.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	vs.add_child(lbl_life)
+	vs.add_child(HSeparator.new())
 	vs.add_child(lbl("SANTÉ DE LA POPULATION", CY, 12))
 	bar_health = ProgressBar.new()
 	bar_health.custom_minimum_size.y = 10
@@ -2254,9 +2307,54 @@ func build_survival() -> void:
 	vo.add_child(ark_btn)
 
 
+func bar_col(b: ProgressBar, v: float, lo: float, hi: float) -> void:
+	b.value = v
+	var fill: StyleBoxFlat = b.get_theme_stylebox("fill").duplicate()
+	fill.bg_color = OK if v >= hi else (AMB if v >= lo else BAD)
+	b.add_theme_stylebox_override("fill", fill)
+
+
+func refresh_life() -> void:
+	var V = w.vie
+	if V == null or lbl_phase == null:
+		return
+	lbl_phase.text = "PHASE %d — %s" % [V.phase, V.PHASE_NAME[V.phase].to_upper()]
+	var ol: Array = []
+	for o in V.objectives():
+		ol.append(("✔ " if o[1] else "☐ ") + o[0])
+	if V.phase >= 4:
+		ol.append("Expansion : réacteurs, spatioport, commerce… et défense contre les pirates de Kronos.")
+	elif V.phase == 1 and V.capsule_p >= 0.0 and not V.capsule_ok:
+		ol.append("Réparation en cours : %d %%" % int(V.capsule_p / V.CAPSULE_TIME * 100.0))
+	lbl_obj.text = "\n".join(ol)
+	cap_btn.visible = not V.capsule_ok
+	cap_btn.disabled = V.can_repair_capsule() != ""
+	mine_btn.text = "⛏ Minage à la main : " + ("EN COURS" if V.mining else "arrêté")
+	bunk_btn.text = "🛡 Mode bunker : " + ("ACTIVÉ" if V.bunker else "non")
+	var nd: int = V.damaged().size()
+	rep_btn.visible = nd > 0
+	rep_btn.text = "🔧 Réparer à la main (%d dégât%s) : %s" % [nd, "s" if nd > 1 else "", "EN COURS" if V.repairing else "non"]
+	var cap: Dictionary = C.caps()
+	bar_col(bar_o2, C.stock.oxygene / maxf(1.0, cap.oxygene) * 100.0, 15.0, 35.0)
+	bar_col(bar_bat, C.battery / maxf(1.0, C.bat_cap()) * 100.0, 15.0, 40.0)
+	bar_col(bar_stab, 100.0 - V.instab, 40.0, 60.0)
+	var L: Array = []
+	L.append("%s · soleil %d° · %s" % ["☀ JOUR" if V.daylight > 0.0 else "☾ NUIT", int(V.sun_el), "rotation : 1 jour = %d s" % int(V.DAY)])
+	L.append("Oxygène %d (%+.2f/s) · CO2 %.2f %% · eau %d · nourriture %d" % [int(C.stock.oxygene), C.rates.oxygene, V.co2, int(C.stock.eau), int(C.stock.nourriture)])
+	L.append("Température de la base : %d °C%s" % [int(V.temp), " — FROID" if V.temp < 5.0 else (" — SURCHAUFFE" if V.temp > 38.0 else "")])
+	L.append("Énergie : %d / %d · batteries %d / %d%s" % [int(C.energy.p), int(C.energy.c), int(C.battery), int(C.bat_cap()), " · générateur H2 %d" % int(C.h2_out) if C.h2_out > 0.0 else ""])
+	L.append("Logement : %d / %d habitants" % [int(C.pop), int(C.housing())])
+	L.append("Brèches : %d · bâtiments endommagés : %d" % [V.breaches(), nd])
+	if V.phase >= 2:
+		L.append("Micrométéorites : %s" % ("PLUIE EN COURS (%d s)" % int(ceil(V.meteor)) if V.meteor > 0.0 else ("prochaine pluie dans %d s" % int(V.meteor_t) if C.count_ok("radar") > 0 or V.meteor_t < 10.0 else "un radar préviendrait à l’avance")))
+	L.append("Stabilité : instabilité %d %% · dérive orbitale %d %%%s" % [int(V.instab), int(V.drift), " — propulseurs d’attitude nécessaires" if V.instab > 50.0 else ""])
+	lbl_life.text = "\n".join(L)
+
+
 func refresh_survival() -> void:
 	if Sv == null:
 		return
+	refresh_life()
 	var T: Dictionary = C.tech_done
 	bar_health.value = Sv.health
 	var fill: StyleBoxFlat = bar_health.get_theme_stylebox("fill").duplicate()
@@ -2264,10 +2362,11 @@ func refresh_survival() -> void:
 	bar_health.add_theme_stylebox_override("fill", fill)
 	var lines: Array = []
 	lines.append("Santé : %d %%  (moral −%d)" % [int(Sv.health), int(Sv.morale_malus())])
-	lines.append("Radiations : %.2f %s" % [Sv.dose, "— TEMPÊTE DE RAYONS COSMIQUES (%d s)" % int(ceil(Sv.storm)) if Sv.storm > 0.0 else "(fond cosmique ; prochaine tempête dans ~%d s)" % int(Sv.storm_t)])
-	lines.append("Protection : %s, %s, %s" % ["blindage à l’eau ✔" if T.has("blindage_eau") else "pas de blindage à l’eau", "bouclier magnétique ✔" if T.has("bouclier_mag") else "pas de bouclier magnétique", "le dôme absorbe 40 % pendant une tempête"])
+	lines.append("Radiations : %.2f %s" % [Sv.dose, "— ÉRUPTION SOLAIRE (%d s)" % int(ceil(Sv.storm)) if Sv.storm > 0.0 else "(fond cosmique ; prochaine éruption dans ~%d s)" % int(Sv.storm_t)])
+	lines.append("Protection : %s, %s%s" % ["blindage à l’eau ✔" if T.has("blindage_eau") else "pas de blindage à l’eau", "bouclier magnétique ✔" if T.has("bouclier_mag") else "pas de bouclier magnétique", ", le dôme absorbe 40 % pendant une éruption" if w.vie.at_war() else ""])
 	lines.append("Microgravité : %s" % ("anneau centrifuge ✔" if T.has("anneau") else "perte osseuse et musculaire (recherchez l’anneau centrifuge)"))
-	lines.append("Besoins vitaux : eau %s, volatils %s%s" % ["MANQUE" if Sv.short_water else "ok", "MANQUE" if Sv.short_vol else "ok", " (recyclage à 99,9 % ✔)" if T.has("recyclage") else " (sans recyclage : forte consommation de glace)"])
+	var V = w.vie
+	lines.append("Abri : %d %% de la population à couvert (galeries, mode bunker)%s" % [int(V.shelter() * 100.0), " — recyclage à 99,9 % ✔" if T.has("recyclage") else ""])
 	lines.append("")
 	lines.append("Sol %s%s." % ["glacé (astéroïde peu dense) : la chaleur des réacteurs et raffineries fait fondre la glace sous les fondations" if Sv.icy() else "rocheux : risque d’affaissement faible sous les bâtiments chauds", " — fondations cryogéniques ✔" if T.has("fondations") else ""])
 	var mining: int = C.count_done("moissonneuse") + C.count_done("foreuse")

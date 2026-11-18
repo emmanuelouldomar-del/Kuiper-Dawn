@@ -623,3 +623,40 @@ Demande de l'utilisateur : « lisse l'astéroïde ». Les facettes de la section
 - `terrain.gdshader`, uniforme `facettes` (0 = lisse, réglé par `build_terrain`) : normale lissée, ni grandes facettes inclinées ni variation de teinte par facette.
 - Inchangés : teintes ocre beige, grandes plaques claires, ombres violettes, décor rocheux Blender (section 27, toujours à facettes).
 - Pour revenir aux facettes : `FACETTES := true`.
+
+
+## 29. Survie sur l'astéroïde : phases, flux vitaux, menaces (2026-11-17/18) : `vie.gd`
+Document de gameplay de l'utilisateur (survie, flux en circuit fermé, menaces, bâtiments, centre de gravité). Choix de l'utilisateur : **survie d'abord, guerre plus tard** (les pirates n'arrivent qu'en phase 4) et **gestion uniquement** (pas de personnage jouable : l'équipage mine à la main).
+- **4 phases** (`vie.phase`, `objectives()`, `check_phase()`, nom dans `PHASE_NAME`) :
+  1. **Survie immédiate** : seule la capsule d'atterrissage (endommagée, 8 colons) ; minage à la main ; objectif : réparer la capsule (60 régolithe, 30 fer, 20 s). La recherche demande la capsule réparée.
+  2. **Stabilisation** : sas, station d'eau, électrolyseur, épurateur de CO2, 2 panneaux solaires, batteries.
+  3. **Industrialisation** : foreuse de profondeur, fonderie, imprimante 3D, serre, radiateurs, centre de commandement, 30 habitants.
+  4. **Expansion** : réacteurs, spatioport, catapulte… et **la guerre** (`vie.start_war` → `main.on_war`) : hangars, tourelles anti-aériennes, bouclier (s'il y a un centre de commandement), bataille, Kronos, factions.
+- **Bâtiments** (`colony.BLD`, clé `ph` = phase de déblocage) :
+  - nouveaux : capsule, sas, station d'eau, électrolyseur, épurateur, panneaux solaires, batteries, radiateurs, régulateur thermique, foreuse de profondeur, imprimante 3D, serre, recycleur, infirmerie, générateur à hydrogène, hub de drones, centre de commandement, propulseurs d'attitude, tourelle laser ;
+  - nouvelles clés : `housing`, `pressure` (brèche = fuite d'O2), `surface` (arrêté en mode bunker), `solar`, `battery`, `cool`, `heater`, `heat`, `scrub`, `heal`, `h2gen`, `thrust`, `deep`, `reserve` (la fonderie laisse 80 régolithe), `colonists`.
+- **Ressources ajoutées** : eau, oxygène, hydrogène, nourriture, composants, béton spatial, titane.
+- **Énergie** (`colony.step`) : le solaire suit le jour (`vie.daylight`) ; les batteries (`battery`, `bat_cap`) se chargent du surplus et couvrent le déficit ; les générateurs à hydrogène ne tournent qu'en cas de déficit (`h2_out`) ; la surchauffe (> 45 °C) réduit l'efficacité. Le bouclier ne consomme qu'en guerre.
+- **Flux vitaux** (`vie.step_flows`) : oxygène, eau, nourriture consommés par la population ; fuites (capsule, brèches) ; CO2 (%) épuré par la capsule, les épurateurs (cartouches = composants, sauf recherche « Cartouches régénérables ») et les serres. Pénurie d'oxygène : santé −1,5/s et morts. Recycleurs et recherche « Recyclage » réduisent les besoins.
+- **Chaleur** (`step_heat`) : machines, réacteurs, population et soleil chauffent ; seuls les radiateurs évacuent ; la nuit refroidit, les régulateurs chauffent. Froid (< 0 °C) et surchauffe (> 38 °C) abîment la santé.
+- **Jour et nuit** : rotation de 240 s (`DAY`, `sun_el` = 50·sin + 35, nuit d'environ un quart du cycle) ; `main.update_daynight` fait tourner le soleil dans les vues proches (pas dans les vues lointaines ni en mode captures).
+- **Menaces** :
+  - **micrométéorites** dès la phase 2 (`step_threats`, toutes les 220 à 340 s, 20 s, 0,15 impact/s) : bâtiments endommagés (`x.dmg`, arrêtés), brèches ; le radar prévient 45 s avant (sinon 10 s) ; chaque tourelle laser détruit 35 % des météorites (jusqu'à 85 %). Effets : `main.meteor_fx`, `laser_beam`, `damage_fx` (fumée sur les bâtiments endommagés) ;
+  - **éruptions solaires** (`survival.storm`) : radiations et surtensions (panneaux et batteries grillent) si la base n'est pas en **mode bunker** (`vie.bunker` : surface arrêtée, radiations réduites) ;
+  - **séismes** dans les galeries (foreuse de profondeur) : fuites d'eau et d'oxygène, foreuse arrêtée 30 s (`main.quake_fx`).
+- **Réparations** : à la main par l'équipage (`toggle_repair`, 2 fer + 8 régolithe, une toutes les 6 s) ou par les drones (2 composants, une toutes les 12 s par hub).
+- **Mécanique signature, la stabilité** (`step_stability`) : moissonneuses, foreuses, galeries et stocks lourds déplacent le centre de gravité (`instab`, 0–100) ; les propulseurs d'attitude corrigent en brûlant de l'hydrogène. Au-delà de 60, l'astéroïde dérive (`drift`) ; à 100, **défaite** (`strategy.lose_txt`).
+- **Défaites de survie** : population à 0 ou dérive à 100. `bridge.show_end` affiche `strategy.lose_txt` (« LA COLONIE A PÉRI »).
+- **3D** (`main.gd`) :
+  - les bâtiments dessinés dans `build_base` sont rangés en **groupes cachés** (`grp`, `POOL`) et dévoilés à leur place quand la colonie les construit (`construct`, `pool_left`, `pool_pos` pour le chantier) ;
+  - la capsule est le seul objet visible au départ ;
+  - les nouveaux bâtiments ont leurs modèles dans **`modeles_survie.gd`** ;
+  - 8 emplacements près du centre, plus des anneaux d'emplacements à 280, 330 et 380 m avant BSC, hors du secteur du front (`colony.SLOTS`).
+- **Bataille** (`battle.war_on()`) : ni formations, ni navettes pirates, ni chasseurs, ni tourelles visibles avant la guerre. Kronos, les factions et les blocus sont gelés (`strategy.step`). La Terre n'envoie des contrats qu'à partir de la phase 3.
+- **Interface** : l'onglet **Survie** passe en premier dans la gestion (phase, objectifs, boutons Réparer la capsule, Minage à la main, Mode bunker, Réparer ; jauges oxygène, batteries, stabilité ; jour et nuit, CO2, température, énergie, logement, brèches, météorites, dérive). Les bâtiments de construction sont filtrés par phase. Le panneau de la vue 3D affiche la phase, O2, CO2 et la température.
+- **Options** : `--phase N` démarre directement à la phase N (la colonie a déjà fait les précédentes : `colony.setup(w, phase)`, puis `reveal_start`). Les captures (`--shots`) et `--verif-chars` démarrent en phase 4, sauf `--phase` explicite.
+- **Pilote automatique** : `vie.bot_step()` gère la survie (bunker pendant les éruptions, réparations, minage, oxygène, eau, CO2, chaleur, énergie solaire et batteries, logement, propulseurs, lasers, objectifs de phase, recherches), puis `strategy.bot_step` reprend la guerre en phase 4.
+- **Test `--autopilote`** (rapport avec phase, O2, CO2, température, batteries, instabilité, dérive, dégâts et nombre de bâtiments par type) :
+  - après rééquilibrage : phase 2 vers 2 min, phase 3 vers 9 min, phase 4 vers 17 min ;
+  - plusieurs raids repoussés, puis défaite par invasion pirate à 44 min ;
+  - le pilote gère mal l'économie de guerre (crédits) : l'équilibrage de la phase 4 reste à revoir.

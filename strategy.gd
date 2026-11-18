@@ -46,6 +46,7 @@ var blk = null               # blocus et invasion en cours
 var sats: Array = []
 var lost := false
 var won := false
+var lose_txt := ""         # cause de la défaite (survie : asphyxie, dérive…) ; vide = invasion pirate
 var win_kind := "kronos"    # "kronos" (conquête) ou "arche" (vaisseau-arche vers Alpha du Centaure)
 var combat_log: Array = []
 var bot_on := false
@@ -596,6 +597,8 @@ func alert_txt() -> String:
 			return "⚠ Bombardement du bouclier (%s) : fin dans %d s." % [ships_txt(m.ships), int(maxf(0.0, ceil(SIEGE - m.sg.t)))]
 		var who: String = "pirate" if not m.has("fac") else "ennemie (" + w.factions.F(m.fac).name + ")"
 		return "⚠ Flotte %s en approche (%s) : arrivée dans %d s." % [who, ships_txt(m.ships), int(ceil(m.dur - m.p))]
+	if w.survival != null:
+		return w.survival.alert_txt()
 	return ""
 
 
@@ -643,10 +646,12 @@ func step(dt: float) -> void:
 			if s.life <= 0.0:
 				sats.remove_at(i)
 				C.say("Le satellite espion a été perdu : orbite décroissante.")
-	step_enemy(dt)
-	if w.factions != null:
-		w.factions.step(dt)
-	step_blockade(dt)
+	# Kronos, les factions et les blocus n'existent qu'une fois la colonie repérée (phase 4 de la survie)
+	if w.vie == null or w.vie.at_war():
+		step_enemy(dt)
+		if w.factions != null:
+			w.factions.step(dt)
+		step_blockade(dt)
 	if bot_on:
 		bot_t -= dt
 		if bot_t <= 0.0:
@@ -757,6 +762,12 @@ func bot_step() -> void:
 		bot_on = false
 		bot_intent = "Partie terminée."
 		return
+	# survie d'abord : phases 1 à 3, puis les urgences vitales en phase 4
+	if w.vie != null:
+		var vi: String = w.vie.bot_step()
+		if vi != "" and (w.vie.phase < 4 or not vi.begins_with("Attend")):
+			bot_intent = vi
+			return
 	# moral : baisser les impôts quand il chute, les remonter quand il est bon
 	C.tax = 4.0 if C.morale < 35.0 else (10.0 if C.morale > 55.0 else C.tax)
 	# astéroïde glacé : les fondations cryogéniques passent avant tout (affaissements sous les réacteurs)

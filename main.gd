@@ -35,6 +35,12 @@ var bridge                   # passerelle de commandement (bridge.gd)
 var strategy                 # flottes, carte, Kronos, pilote automatique (strategy.gd)
 var factions                 # diplomatie, superviseurs, opérations spéciales (factions.gd)
 var survival                 # survie à 40 UA, Terre, vaisseau-arche (survival.gd)
+var vie                      # survie sur l'astéroïde : phases, flux vitaux, menaces, stabilité (vie.gd)
+var start_phase := 1         # --phase N : commencer directement à une phase (captures et vérifications : 4)
+var POOL := {}               # type de bâtiment -> groupes de nœuds dessinés dans la base, cachés jusqu'à leur construction
+var modeles                  # modèles 3D des bâtiments de survie (modeles_survie.gd)
+var meteors: Array = []      # micrométéorites en vol (effets visuels)
+var war_t0 := -1.0           # instant où la guerre commence (montée du bouclier)
 var ark_hull: Node3D         # coque du vaisseau-arche en cours d'assemblage
 var siege: Array = []        # vaisseaux pirates qui pilonnent le bouclier
 var screen_tex: TextureRect  # image de la vue 3D (après le filtre de style)
@@ -650,6 +656,11 @@ func _ready() -> void:
 			verif_chars = true
 		if args[i] == "--autopilote":
 			auto_test = true
+		if args[i] == "--phase" and i + 1 < args.size():
+			start_phase = clampi(int(args[i + 1]), 1, 4)
+	# captures et vérifications : base complète et bataille en cours, sauf --phase explicite
+	if (shots_dir != "" or verif_chars) and not args.has("--phase"):
+		start_phase = 4
 	cam = Camera3D.new()
 	cam.fov = 50
 	cam.near = 0.1
@@ -658,13 +669,18 @@ func _ready() -> void:
 	smoke_tex = make_smoke()
 	build_sky()
 	build_base()
+	vie = preload("res://vie.gd").new()
+	add_child(vie)
+	vie.phase = start_phase
+	vie.war_on = start_phase >= 4
 	war = preload("res://battle.gd").new()
 	add_child(war)
 	war.setup(self)
 	build_shield()
 	colony = preload("res://colony.gd").new()
 	add_child(colony)
-	colony.setup(self)
+	colony.setup(self, start_phase)
+	vie.setup(self, colony, start_phase)
 	strategy = preload("res://strategy.gd").new()
 	add_child(strategy)
 	strategy.setup(self, colony)
@@ -674,6 +690,9 @@ func _ready() -> void:
 	survival = preload("res://survival.gd").new()
 	add_child(survival)
 	survival.setup(self, colony)
+	colony.reveal_start()
+	if vie.at_war():
+		on_war()
 	if auto_test:
 		strategy.bot_toggle()
 	# le maillage du sol est construit en dernier : il intègre les zones aplanies sous les bâtiments et les tourelles
@@ -1268,30 +1287,40 @@ func build_base() -> void:
 	add_child(B)
 	base_root = B
 	# base de style militaire (kaki, blindage, visières dorées, tuyaux) ; coordonnées avant la réduction BSC
-	command_post(B)
-	corridor(B, Vector3(9, 0, 0), Vector3(58, 0, 0))
-	corridor(B, Vector3(-9, 0, 0), Vector3(-56, 0, 0))
-	corridor(B, Vector3(0, 0, -9), Vector3(0, 0, -56))
-	corridor(B, Vector3(0, 0, 9), Vector3(0, 0, 40))
-	reactor(B, Vector2(68, 0))
-	tank_farm(B, Vector2(-70, 0))
-	radar_tower(B, Vector2(-45, -40))
+	modeles = preload("res://modeles_survie.gd").new(self)
+	# survie : chaque bâtiment dessiné ici est caché jusqu'à ce que la colonie le construise (groupes POOL) ;
+	# seule la capsule d'atterrissage est là au début
+	modeles.build(B, "capsule", Vector2(34, 26), 0.6)
+	grp(B, "commande", func():
+		command_post(B)
+		roads(B))
+	grp(B, "sas", func():
+		corridor(B, Vector3(9, 0, 0), Vector3(58, 0, 0))
+		corridor(B, Vector3(-9, 0, 0), Vector3(-56, 0, 0))
+		corridor(B, Vector3(0, 0, -9), Vector3(0, 0, -56))
+		corridor(B, Vector3(0, 0, 9), Vector3(0, 0, 40)))
+	grp(B, "fusion", func(): reactor(B, Vector2(68, 0)))
+	grp(B, "reservoir", func(): tank_farm(B, Vector2(-70, 0)))
+	grp(B, "radar", func(): radar_tower(B, Vector2(-45, -40)))
 	# surface industrielle (remake K-240) : seulement l'industrie polluante, l'extraction et le stockage
-	refinery(B, Vector2(118, -70), 0.3)
-	link(B, Vector2(76, -6), Vector2(104, -56), 2.0, 2.0, 0.8, "tuyau")
-	fission_smr(B, Vector2(-175, -95))
-	link(B, Vector2(-80, -8), Vector2(-160, -86), 1.6, 1.6, 0.7, "danger")
-	mass_driver(B, Vector2(150, 60), -0.9)
-	storage_silos(B, Vector2(-120, 50))
-	link(B, Vector2(-80, 8), Vector2(-108, 40), 1.6, 1.6, 0.6, "tuyau")
+	grp(B, "raffinerie", func():
+		refinery(B, Vector2(118, -70), 0.3)
+		link(B, Vector2(76, -6), Vector2(104, -56), 2.0, 2.0, 0.8, "tuyau"))
+	grp(B, "smr", func():
+		fission_smr(B, Vector2(-175, -95))
+		link(B, Vector2(-80, -8), Vector2(-160, -86), 1.6, 1.6, 0.7, "danger"))
+	grp(B, "catapulte", func(): mass_driver(B, Vector2(150, 60), -0.9))
+	grp(B, "silo", func():
+		storage_silos(B, Vector2(-120, 50))
+		link(B, Vector2(-80, 8), Vector2(-108, 40), 1.6, 1.6, 0.6, "tuyau"))
 	# spatioport : grand, du côté opposé au front
-	spaceport(B, Vector2(0, -175))
-	# deux hangars, portes tournées vers le front : les défenseurs y déploient leurs unités
-	hangar(B, Vector2(-90, 150), -PI / 2)
-	hangar(B, Vector2(140, 150), -PI / 2)
+	grp(B, "spatioport", func(): spaceport(B, Vector2(0, -175)))
+	# deux hangars, portes tournées vers le front : les défenseurs y déploient leurs unités (dévoilés avec la guerre)
+	grp(B, "hangar", func():
+		hangar(B, Vector2(-90, 150), -PI / 2)
+		hangar(B, Vector2(140, 150), -PI / 2))
 	for e in [[0.0, 52.0, 2.6], [22.0, 60.0, 3.4], [38.0, 48.0, 2.2], [-12.0, 66.0, 3.0]]:
-		drill_rig(B, Vector2(e[0], e[1]), e[2])
-	roads(B)
+		grp(B, "foreuse", func(): drill_rig(B, Vector2(e[0], e[1]), e[2]))
 	rocks(B)
 	# chaque objet est redressé selon la verticale locale de la sphère
 	# (sauf les pièces « libres », déjà orientées : tubes de liaison, passerelles, routes)
@@ -1330,9 +1359,47 @@ func build_base() -> void:
 			r.g.position = pad.position + pad.basis * Vector3(0, float(r.get("pad_off", 1.4)), 0)
 		r.base = (r.g as Node3D).position
 	peaks()
-	# moissonneuses-racleuses : engins mobiles qui tournent sur les champs de régolithe autour de la base
-	for k in 5:
-		add_harvester()
+	# les groupes pas encore construits sont cachés (ils restent en place pour les collisions et le sol aplani)
+	for t in POOL:
+		for nodes in POOL[t]:
+			for n in nodes:
+				(n as Node3D).visible = false
+
+
+# enregistre les nœuds créés par f comme un groupe caché du type t (dévoilé par construct)
+func grp(B: Node3D, t: String, f: Callable) -> void:
+	var n0 := B.get_child_count()
+	f.call()
+	var nodes: Array = []
+	for i in range(n0, B.get_child_count()):
+		nodes.append(B.get_child(i))
+	if not POOL.has(t):
+		POOL[t] = []
+	POOL[t].append(nodes)
+
+
+func pool_left(t: String) -> int:
+	return POOL.get(t, []).size()
+
+
+# emplacement (coordonnées planes avant BSC) du prochain groupe caché de ce type, ou null
+func pool_pos(t: String):
+	if pool_left(t) <= 0:
+		return null
+	for n in POOL[t][0]:
+		if n is Node3D and not n.has_meta("libre"):
+			return planar((n as Node3D).position) / BSC
+	return null
+
+
+# guerre (phase 4) : hangars, tourelles anti-aériennes, montée du bouclier si le centre de commandement existe
+func on_war() -> void:
+	if pool_left("hangar") > 0:
+		for n in POOL.hangar.pop_front():
+			(n as Node3D).visible = true
+	for tu in war.TUR:
+		(tu.g as Node3D).visible = true
+	war_t0 = war.time
 
 
 const HARV_FIELDS := [Vector2(-150, -40), Vector2(-120, 70), Vector2(110, -120), Vector2(150, 20), Vector2(-60, -160), Vector2(-185, 20), Vector2(175, -60), Vector2(30, -170)]
@@ -1366,6 +1433,8 @@ func update_harvesters(dt: float) -> void:
 
 
 func update_plumes(dt: float) -> void:
+	# bouffées des bâtiments détruits : oubliées
+	plumes = plumes.filter(func(q): return is_instance_valid(q.n))
 	for pl in plumes:
 		pl.k = fmod(pl.k + dt * 0.12, 1.0)
 		var n: Node3D = pl.n
@@ -2852,6 +2921,7 @@ func _process(delta: float) -> void:
 		for k in n:
 			war.step(sdt / n)
 			colony.step(sdt / n)
+			vie.step(sdt / n)
 			strategy.step(sdt / n)
 			survival.step(sdt / n)
 	war.render(dt)
@@ -2859,6 +2929,8 @@ func _process(delta: float) -> void:
 	update_harvesters(dt * (0.0 if paused else tscale))
 	update_plumes(dt)
 	update_siege(dt * (0.0 if paused else tscale))
+	update_meteors(dt * (0.0 if paused else tscale))
+	update_daynight()
 	hud_t -= delta
 	if hud_t <= 0:
 		hud_t = 0.4
@@ -2972,8 +3044,16 @@ func construct(t: String, slot: Vector2) -> Array:
 		add_harvester()
 		return [harvesters[-1].n]
 	var B := base_root
+	# un bâtiment dessiné dans la base attendait : on le dévoile à sa place
+	if pool_left(t) > 0:
+		var nodes: Array = POOL[t].pop_front()
+		for n in nodes:
+			(n as Node3D).visible = true
+		return nodes
 	var idx := B.get_child_count()
 	var yaw := rng.randf() * TAU
+	if modeles.build(B, t, slot, yaw):
+		return place_new(B, idx)
 	match t:
 		"foreuse":
 			drill_rig(B, slot, yaw)
@@ -3179,7 +3259,7 @@ func build_shield() -> void:
 
 
 func shield_up() -> bool:
-	return SHD_DOWN <= 0.0 and war != null and war.time > 1.0
+	return SHD_DOWN <= 0.0 and war != null and war_t0 >= 0.0 and war.time > war_t0 + 1.0 and colony != null and colony.count_done("commande") > 0
 
 
 # point où le segment a → b entre dans le dôme (null si a est déjà dedans, ou si le segment ne le touche pas)
@@ -3240,7 +3320,8 @@ func update_shield(dt: float) -> void:
 		arr.append(Vector4(h[0].x, h[0].y, h[0].z, h[1]))
 	shd_mat.set_shader_parameter("hits", arr)
 	# activation au début de la partie : le dôme monte depuis le sol
-	var act := clampf((war.time - 1.0) / 4.0, 0.0, 1.0) if war != null else 0.0
+	var act := clampf((war.time - war_t0 - 1.0) / 4.0, 0.0, 1.0) if war != null and war_t0 >= 0.0 and colony != null and colony.count_done("commande") > 0 else 0.0
+	shd_node.visible = act > 0.0
 	shd_mat.set_shader_parameter("act", act)
 	shd_mat.set_shader_parameter("energy", 0.0 if SHD_DOWN > 0.0 else SHD_E / 100.0)
 
@@ -3378,7 +3459,7 @@ func update_hud() -> void:
 		bar += "█" if i < int(front * 26) else "░"
 	var spd := "PAUSE" if paused else "x%s" % str(tscale)
 	var shd_txt := "EFFONDRÉ (%ds)" % int(ceil(SHD_DOWN)) if SHD_DOWN > 0.0 else ("ACTIVATION" if war.time < 5.0 else "%d %%" % int(SHD_E))
-	lbl_stats.text = "IMAGES/S         %d\nASTÉROÏDE        Ø %.1f km\n                 (x%.1f le front)\nFORME            %s\nDENSITÉ          %.2f g/cm³\nGRAVITÉ          %.3f mm/s²\nLIBÉRATION       %.2f m/s\n\nCENTRE CMD.      ACTIF\nRÉACTEUR He-3    EN SERVICE\nBOUCLIER         %s\nNAVETTES PIRATES %d en vol\n                 %d abattues\n\nVAGUE            %d\nPERTES PIRATES   %d\nPERTES COLONIE   %d\nVITESSE          %s\n\nLIGNE DE FRONT\n%s" % [Engine.get_frames_per_second(), RC * 2.0 / 1000.0, TAILLE_K, SH_TYPE, SH_RHO / 1000.0, AST_G * 1000.0, AST_VESC, shd_txt, h.ds, h.ds_down, h.wave, h.kills.b, h.kills.r, spd, bar]
+	lbl_stats.text = "IMAGES/S         %d\nASTÉROÏDE        Ø %.1f km\n                 (x%.1f le front)\nFORME            %s\nDENSITÉ          %.2f g/cm³\nGRAVITÉ          %.3f mm/s²\nLIBÉRATION       %.2f m/s\n\nPHASE            %d · %s\nO2 · CO2 · TEMP. %d · %.1f %% · %d °C\nBOUCLIER         %s\nNAVETTES PIRATES %d en vol\n                 %d abattues\n\nVAGUE            %d\nPERTES PIRATES   %d\nPERTES COLONIE   %d\nVITESSE          %s\n\nLIGNE DE FRONT\n%s" % [Engine.get_frames_per_second(), RC * 2.0 / 1000.0, TAILLE_K, SH_TYPE, SH_RHO / 1000.0, AST_G * 1000.0, AST_VESC, vie.phase, vie.PHASE_NAME[vie.phase].to_upper(), colony.stock.oxygene, vie.co2, vie.temp, shd_txt if vie.at_war() else "en attente", h.ds, h.ds_down, h.wave, h.kills.b, h.kills.r, spd, bar]
 
 
 # ================================================================ passerelle de commandement (bridge.gd)
@@ -3429,13 +3510,17 @@ func auto_report() -> void:
 	var fl: Array = []
 	for f in S.fleets:
 		fl.append("%s[%s %s]" % [f.name, f.loc, S.ships_txt(f.ships)])
-	print("T+%d min | santé %d | fer %d rég %d cr %d He3 %d glace %d | énergie %d/%d | moral %d pop %d | bât %d | tech %s | hangar %s | flottes %s | colonies %s | Kronos %s flotte %s def %d | raids %d | bouclier %d | %s" % [
+	var cnt := {}
+	for x in colony.inst:
+		cnt[x.t] = cnt.get(x.t, 0) + 1
+	print(cnt)
+	print("PH%d O2 %d CO2 %.1f T %d°C bat %d instab %d dérive %d dmg %d | " % [vie.phase, colony.stock.oxygene, vie.co2, vie.temp, colony.battery, vie.instab, vie.drift, vie.damaged().size()], "T+%d min | santé %d | fer %d rég %d cr %d He3 %d glace %d | énergie %d/%d | moral %d pop %d | bât %d | tech %s | hangar %s | flottes %s | colonies %s | Kronos %s flotte %s def %d | raids %d | bouclier %d | %s" % [
 		int(war.time / 60.0), survival.health, colony.stock.fer, colony.stock.regolithe, colony.stock.credits, colony.stock.he3, colony.stock.glace,
 		colony.energy.p, colony.energy.c, colony.morale, colony.pop, colony.inst.size(), colony.tech_done.keys(),
 		S.ships_txt(S.hangar), fl, S.col.keys(), "MORT" if S.E.dead else "vivant", S.ships_txt(S.E.fleet), S.E.bld.defense,
 		S.E.atkN, SHD_E, S.bot_intent])
 	if S.won or S.lost or war.time > 3600.0:
-		print("FIN : ", "VICTOIRE" if S.won else ("DÉFAITE" if S.lost else "temps écoulé"), " à T+%d min" % int(war.time / 60.0))
+		print("FIN : ", "VICTOIRE" if S.won else ("DÉFAITE" if S.lost else "temps écoulé"), " à T+%d min " % int(war.time / 60.0), S.lose_txt if S.lose_txt != "" else "(invasion pirate)" if S.lost else "")
 		for l in S.combat_log:
 			print("  ", l)
 		get_tree().quit()
@@ -3541,3 +3626,153 @@ func ark_yard(B: Node3D, p: Vector2) -> void:
 func ark_visual(progress: float) -> void:
 	if ark_hull != null and is_instance_valid(ark_hull):
 		ark_hull.scale = Vector3(maxf(0.02, progress / 100.0), 1, 1)
+
+
+# ================================================================ survie : effets visuels (météorites, dégâts, séismes, jour et nuit)
+var meteor_mat: StandardMaterial3D
+var beam_mat: StandardMaterial3D
+var smoke_acc := 0.0
+
+
+func node_pos(x) -> Vector3:
+	if x != null:
+		for nd in x.get("nodes", []):
+			if is_instance_valid(nd) and (nd as Node3D).visible:
+				return (nd as Node3D).global_position
+	var a := rng.randf() * TAU
+	var r := rng.randf_range(20.0, 140.0)
+	return gp(cos(a) * r, sin(a) * r)
+
+
+# une micrométéorite tombe sur x (ou au hasard) ; interceptée, elle explose en vol sous le tir d'une tourelle laser
+func meteor_fx(x, intercepted: bool) -> void:
+	if meteor_mat == null:
+		meteor_mat = StandardMaterial3D.new()
+		meteor_mat.albedo_color = Color(0.1, 0.05, 0.02)
+		meteor_mat.emission_enabled = true
+		meteor_mat.emission = Color(1.0, 0.55, 0.2)
+		meteor_mat.emission_energy_multiplier = 6.0
+		beam_mat = StandardMaterial3D.new()
+		beam_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		beam_mat.albedo_color = Color(1.0, 0.25, 0.2)
+		beam_mat.emission_enabled = true
+		beam_mat.emission = Color(1.0, 0.2, 0.15)
+		beam_mat.emission_energy_multiplier = 8.0
+	var p1 := node_pos(x)
+	var up := up_at(p1)
+	var side := up.cross(Vector3.RIGHT if absf(up.x) < 0.9 else Vector3.FORWARD).normalized().rotated(up, rng.randf() * TAU)
+	var p0 := p1 + up * 280.0 + side * 140.0
+	var mi := MeshInstance3D.new()
+	var bm := BoxMesh.new()
+	bm.size = Vector3(0.9, 0.9, 9.0)
+	mi.mesh = bm
+	mi.material_override = meteor_mat
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(mi)
+	mi.global_position = p0
+	mi.look_at(p1, up)
+	meteors.append({"n": mi, "p0": p0, "p1": p1, "t": 0.0, "dur": 1.1, "cut": 0.55 if intercepted else 1.0, "up": up})
+
+
+func update_meteors(dt: float) -> void:
+	for i in range(meteors.size() - 1, -1, -1):
+		var m: Dictionary = meteors[i]
+		m.t += dt
+		var k: float = m.t / m.dur
+		var n: MeshInstance3D = m.n
+		n.global_position = (m.p0 as Vector3).lerp(m.p1, minf(k, 1.0))
+		if k >= m.cut:
+			if m.cut < 1.0:
+				# interceptée : éclair en vol et rayon depuis la tourelle laser la plus proche
+				war.boom(n.global_position, m.up, 0.6)
+				laser_beam(n.global_position)
+			else:
+				war.boom(m.p1, m.up, 1.3)
+				dust_burst(m.p1)
+			n.queue_free()
+			meteors.remove_at(i)
+	# fumée sur les bâtiments endommagés
+	smoke_acc += dt
+	if smoke_acc >= 0.5 and colony != null:
+		smoke_acc = 0.0
+		for x in colony.inst:
+			if x.get("dmg", false):
+				var p := node_pos(x)
+				if x.get("nodes", []).size() > 0:
+					war.puff(p + up_at(p) * 4.0, Color(0.22, 0.2, 0.19, 0.8), 5.0, 3.0, up_at(p) * 2.5)
+
+
+func laser_beam(target: Vector3) -> void:
+	var best: Node3D = null
+	var bd := 1e9
+	for x in colony.inst:
+		if x.t == "laser" and x.done:
+			for nd in x.get("nodes", []):
+				if is_instance_valid(nd):
+					var d: float = (nd as Node3D).global_position.distance_to(target)
+					if d < bd:
+						bd = d
+						best = nd
+	if best == null:
+		return
+	var a := best.global_position + up_at(best.global_position) * 5.0
+	var mi := MeshInstance3D.new()
+	var bm := BoxMesh.new()
+	bm.size = Vector3(0.35, 0.35, a.distance_to(target))
+	mi.mesh = bm
+	mi.material_override = beam_mat
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(mi)
+	mi.global_position = (a + target) * 0.5
+	mi.look_at(target, up_at(a))
+	get_tree().create_timer(0.15).timeout.connect(mi.queue_free)
+
+
+func dust_burst(p: Vector3) -> void:
+	var up := up_at(p)
+	for i in 6:
+		var d := up.cross(Vector3.RIGHT if absf(up.x) < 0.9 else Vector3.FORWARD).normalized().rotated(up, TAU * i / 6.0)
+		war.puff(p + up * 1.0, Color(0.5, 0.4, 0.32, 0.8), 6.0, 2.5, d * 6.0 + up * 1.5)
+
+
+# bâtiment endommagé (on) ou réparé
+func damage_fx(x, on: bool) -> void:
+	var p := node_pos(x)
+	if on:
+		war.boom(p + up_at(p) * 2.0, up_at(p), 0.8)
+	else:
+		war.puff(p + up_at(p) * 3.0, Color(0.7, 0.85, 1.0, 0.6), 3.0, 1.2, up_at(p) * 3.0)
+
+
+func quake_fx() -> void:
+	for i in 10:
+		var a := rng.randf() * TAU
+		var r := rng.randf_range(10.0, 120.0)
+		dust_burst(gp(cos(a) * r, sin(a) * r))
+
+
+# rotation de l'astéroïde : le soleil se lève et se couche sur la base (vues proches seulement)
+func update_daynight() -> void:
+	if vie == null or shots_dir != "" or sun == null:
+		return
+	var v: Dictionary = VUES[view]
+	if v.has("abs"):
+		return
+	var el := deg_to_rad(vie.sun_el)
+	var az := deg_to_rad(v.az)
+	var sd := Vector3(cos(el) * sin(az), sin(el), cos(el) * cos(az))
+	var lv: Vector3 = v.look
+	sd = Quaternion(Vector3.UP, up_at(gp(lv.x, lv.z))) * sd
+	sun.basis = Basis.looking_at(-sd, Vector3.UP if absf(sd.y) < 0.99 else Vector3.FORWARD)
+	var sp := sd.cross(Vector3.UP if absf(sd.y) < 0.99 else Vector3.RIGHT).normalized()
+	var fd := (sd + sp * 0.6).normalized()
+	fill_light.basis = Basis.looking_at(fd, Vector3.UP if absf(fd.y) < 0.99 else Vector3.FORWARD)
+	var dayk := clampf((vie.sun_el + 3.0) / 12.0, 0.0, 1.0)
+	sun.light_energy = 2.4 * dayk
+	sun.visible = dayk > 0.01
+	env.ambient_light_energy = lerpf(0.12, 0.4, dayk)
+	env.tonemap_exposure = lerpf(1.5, 1.25, dayk)
+	var lampe_e := lerpf(1.0, 0.55, dayk)
+	for l in lamps:
+		if is_instance_valid(l):
+			l.light_energy = float(l.get_meta("e0")) * lampe_e

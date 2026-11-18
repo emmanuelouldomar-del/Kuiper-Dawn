@@ -55,17 +55,10 @@ func morale_malus() -> float:
 # ---------------------------------------------------------------- simulation
 func step(dt: float) -> void:
 	var T: Dictionary = C.tech_done
-	# besoins vitaux : eau (et oxygène) tirée de la glace, volatils pour l'agriculture hydroponique
-	var rec := 0.1 if T.has("recyclage") else 1.0
-	var nw: float = C.pop * 0.003 * rec
-	var nv: float = C.pop * 0.0015 * rec
-	short_water = C.stock.glace < nw * dt
-	short_vol = C.stock.volatils < nv * dt
-	C.stock.glace = maxf(0.0, C.stock.glace - nw * dt)
-	C.stock.volatils = maxf(0.0, C.stock.volatils - nv * dt)
-	C.rates.glace -= nw
-	C.rates.volatils -= nv
-	# radiations : fond cosmique, tempêtes ; blindage à eau, bouclier magnétique, dôme du centre de commandement
+	# les besoins vitaux (oxygène, eau, nourriture, CO2) sont gérés par vie.gd
+	short_water = false
+	short_vol = false
+	# radiations : fond cosmique, éruptions solaires ; blindage à eau, bouclier magnétique, dôme, galeries, mode bunker
 	if storm > 0.0:
 		storm -= dt
 		if storm <= 0.0:
@@ -75,7 +68,7 @@ func step(dt: float) -> void:
 		if storm_t <= 0.0:
 			storm_t = randf_range(260.0, 380.0)
 			storm = 40.0
-			say("⚠ Tempête de rayons cosmiques galactiques : la population se réfugie sous la glace (40 s).")
+			say("⚠ ÉRUPTION SOLAIRE (40 s) : radiations en surface et surtensions sur le réseau. Passez en mode bunker !")
 	dose = 0.2 + (3.0 if storm > 0.0 else 0.0)
 	if T.has("blindage_eau"):
 		var g := 0.3 * dt
@@ -85,8 +78,13 @@ func step(dt: float) -> void:
 			dose *= 0.4
 	if T.has("bouclier_mag"):
 		dose *= 0.3
-	if storm > 0.0 and w.SHD_DOWN <= 0.0:
+	if storm > 0.0 and w.SHD_DOWN <= 0.0 and w.vie != null and w.vie.at_war():
 		dose *= 0.6
+	if w.vie != null:
+		dose *= 1.0 - w.vie.shelter()
+		# l'équipage qui mine à la main est exposé en surface
+		if w.vie.mining and not w.vie.bunker:
+			dose += 0.3 if storm > 0.0 else 0.05
 	var dh := -dose * 0.05
 	if not T.has("anneau"):
 		dh -= 0.03          # microgravité : perte osseuse et musculaire
@@ -94,7 +92,7 @@ func step(dt: float) -> void:
 		dh -= 0.3
 	if short_vol:
 		dh -= 0.15
-	if not short_water and not short_vol and storm <= 0.0:
+	if storm <= 0.0 and (w.vie == null or w.vie.vital_ok()):
 		dh += 0.06
 	health = clampf(health + dh * dt, 0.0, 100.0)
 	# sol glacé : affaissements sous les bâtiments chauds
@@ -123,6 +121,9 @@ func step(dt: float) -> void:
 
 # ---------------------------------------------------------------- liaison avec la Terre (latence de plusieurs heures)
 func step_earth(dt: float) -> void:
+	# la Terre ne s'intéresse à la colonie qu'une fois l'industrie lancée
+	if w.vie != null and w.vie.phase < 3:
+		return
 	if contract.is_empty():
 		incoming -= dt
 		if incoming <= 0.0:
@@ -208,7 +209,5 @@ func step_ark(dt: float) -> void:
 
 func alert_txt() -> String:
 	if storm > 0.0:
-		return "⚠ Tempête de rayons cosmiques (%d s)" % int(ceil(storm))
-	if short_water:
-		return "⚠ Pénurie d’eau : la population souffre"
-	return ""
+		return "⚠ Éruption solaire (%d s)%s" % [int(ceil(storm)), "" if w.vie == null or w.vie.bunker else " — passez en mode bunker"]
+	return w.vie.alert_txt() if w.vie != null else ""
