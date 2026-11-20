@@ -600,3 +600,21 @@ D'après une image de référence de l'utilisateur (astéroïde low-poly beige, 
   - **ombres violettes** : `EMISSION` = couleur × (0,38 ; 0,26 ; 0,62) × 0,22, visible seulement là où le soleil n'éclaire pas.
 - **Décor** (`toon.gdshader`) : la couleur de sommet ne donne plus que la luminosité ; la teinte ocre est imposée (`ochre`), avec la même lueur violette.
 - `--verif-chars` (cacahuète) : chars de −0,05 à +0,66 m, fantassins de −0,70 à +0,55 m. La mesure se fait par rapport à `surf_eval`, pas au maillage : avec des cordes de 6 m, l'écart visuel peut atteindre quelques dizaines de centimètres.
+
+## 27. Kit commun des écrans (2026-11-20)
+Demande de l'utilisateur : unifier l'interface des écrans, **sauf l'écran principal** pour l'instant. Avant, deux familles cohabitaient : les grands écrans (gestion, radar, spatial, diplomatie : bandeau de titre, widgets du thème) et les petits écrans d'état (toile fixe de 440 × 320, titres de 22 px sans bandeau, bordures colorées, coordonnées en dur). Une fois agrandis, les petits étaient grossis ×3,4 avec des bandes noires.
+- **Kit** (`bridge.gd`, section « kit commun des écrans ») : tous les écrans sauf `center` utilisent le même cadre (`screen_panel`), le même bandeau (`header`), les mêmes marges (`KIT_TOP`, `KIT_PAD`) et la même échelle de texte (`FS_TITLE` 14, `FS_LABEL` 15, `FS_SMALL` 12, `FS_VALUE` 44).
+  - Couleur d'accent par écran, prise dans `ACC` : `info` cyan, `res` ambre (stocks, pilote, arche), `ok` vert (messages, liaison, flottes, téléscripteur), `alert` magenta. Elle colore le titre, le bandeau et les jauges ; le reste est identique.
+  - Primitives de dessin : `kit_area` (zone sous le bandeau), `kit_text`, `kit_value` (grande valeur + légende), `kit_gauges` (rangées de jauges réparties dans un rectangle).
+- **Écrans d'état** : `status_screen` (cadre + bandeau + moniteur), `deco_screen` (dessiné par `draw_deco`), `text_screen` (Label ancré, pour `log` et `bot`). `draw_deco` n'a plus de coordonnées en dur : tout est relatif à `kit_area`.
+- **Résolution** (`place_mon`) : un écran d'état est mis en page en `HOME_W` (440 px) de large à sa place, avec les proportions du plein écran, puis réduit ; en s'agrandissant, sa taille de mise en page passe progressivement à 1:1 (`fz_t`). Agrandi, il a donc les mêmes tailles de texte que les grands écrans, sans bandes noires. `SMALL_DESIGN` est supprimé.
+- Coins cyan (`draw_corners`) sur tous les écrans.
+- Pour ajouter un écran d'état : une ligne dans `build_small_screens` (id, titre, accent), un cas dans `draw_deco` avec les primitives `kit_*`, et son quadrilatère dans `art/cockpit.json`.
+- **Captures** : `Godot --path . --resolution 1600x900 --script tools/captures_ecrans.gd -- <dossier>` enregistre `passerelle.png` puis `ecran_<id>.png` pour chaque écran agrandi (sauf le principal).
+
+## 28. Écrans calés au pixel sur l'illustration (2026-11-20)
+Demande de l'utilisateur : « les écrans doivent matcher pixel perfect ». Les quadrilatères de `art/cockpit.json` étaient décalés de 5 à 15 px (pixels de `art/cockpit.png`), parfois sur le cadre, parfois dans la vitre.
+- Les 18 quadrilatères suivent maintenant le **bord intérieur de la vitre** (ou le cadre lumineux pour les hologrammes).
+- 13 écrans ont été recalés par **`tools/caler_ecrans.py`** (Python + Pillow + NumPy) : chaque bord se déplace vers le contour le plus net, à condition que le cadre juste à l'extérieur soit uniforme, et les coins sont les intersections des bords.
+- 5 petits moniteurs flous (`pop`, `time`, `scan`, `fleet`, `cons`) ont été mesurés à la main sur des agrandissements quadrillés ×8, car l'outil s'y accrochait au dessin de l'écran.
+- Si l'illustration change : relancer l'outil, vérifier chaque écran sur une superposition, corriger à la main ceux qui décrochent, puis relancer l'import Godot.
