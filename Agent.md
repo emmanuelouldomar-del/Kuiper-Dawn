@@ -611,3 +611,10 @@ Demande de l'utilisateur : unifier l'interface des écrans, **sauf l'écran prin
 - Coins cyan (`draw_corners`) sur tous les écrans.
 - Pour ajouter un écran d'état : une ligne dans `build_small_screens` (id, titre, accent), un cas dans `draw_deco` avec les primitives `kit_*`, et son quadrilatère dans `art/cockpit.json`.
 - **Captures** : `Godot --path . --resolution 1600x900 --script tools/captures_ecrans.gd -- <dossier>` enregistre `passerelle.png` puis `ecran_<id>.png` pour chaque écran agrandi (sauf le principal).
+
+## 28. Écrans calés au pixel sur l'illustration (2026-11-20)
+Demande de l'utilisateur : « les écrans doivent matcher pixel perfect ». Les quadrilatères de `art/cockpit.json` étaient décalés de 5 à 15 px (pixels de `art/cockpit.png`), parfois sur le cadre, parfois dans la vitre.
+- Les 18 quadrilatères suivent maintenant le **bord intérieur de la vitre** (ou le cadre lumineux pour les hologrammes).
+- 13 écrans ont été recalés par **`tools/caler_ecrans.py`** (Python + Pillow + NumPy) : chaque bord se déplace vers le contour le plus net, à condition que le cadre juste à l'extérieur soit uniforme, et les coins sont les intersections des bords.
+- 5 petits moniteurs flous (`pop`, `time`, `scan`, `fleet`, `cons`) ont été mesurés à la main sur des agrandissements quadrillés ×8, car l'outil s'y accrochait au dessin de l'écran.
+- Si l'illustration change : relancer l'outil, vérifier chaque écran sur une superposition, corriger à la main ceux qui décrochent, puis relancer l'import Godot.
