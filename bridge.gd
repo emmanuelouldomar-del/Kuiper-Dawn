@@ -145,7 +145,8 @@ func setup(world, colony) -> void:
 	build_ops()
 	build_survival()
 	build_small_screens()
-	for p in [left, center, right, right2, diplo]:
+	for m in mons:
+		var p: Control = m.content
 		var ov := Control.new()
 		ov.set_anchors_preset(Control.PRESET_FULL_RECT)
 		ov.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -172,7 +173,7 @@ func setup(world, colony) -> void:
 const BZ_SIDE := 14.0
 const BZ_TOP := 14.0
 const BZ_BOT := 30.0
-const SMALL_DESIGN := Vector2(440, 320)
+
 const SCAN := preload("res://shaders/scan.gdshader")
 
 
@@ -365,12 +366,17 @@ func place_mon(m: Dictionary, r: Rect2) -> void:
 	h.position = inner.position
 	h.size = inner.size
 	var c: Control = m.content
-	var design: Vector2 = SMALL_DESIGN if m.small else inner.size
-	if art_tex != null and not m.small:
-		# même mise en page qu'en plein écran, réduite pour tenir dans le petit moniteur de l'image
+	# taille de mise en page : celle du plein écran sur l'illustration (contenu réduit pour tenir dans le moniteur), sinon le moniteur
+	var design: Vector2 = inner.size
+	if art_tex != null:
 		var V := size if size.x > 10 else Vector2(get_viewport().size)
 		design = Vector2(V.x * 0.94 - BZ_SIDE * 2, V.y * 0.92 - BZ_TOP - BZ_BOT)
-	if m.small or art_tex != null:
+	# écran d'état : à sa place, rendu en HOME_W de large (texte lisible dans un petit moniteur) ;
+	# en s'agrandissant, il passe progressivement à 1:1, avec les mêmes tailles de texte que les grands écrans
+	if m.small:
+		var t := ease(fz_t, -2.2) if focused == m.content else 0.0
+		design *= lerpf(HOME_W / design.x, 1.0, t)
+	if not design.is_equal_approx(inner.size):
 		var k := minf(inner.size.x / design.x, inner.size.y / design.y)
 		c.size = design
 		c.scale = Vector2(k, k)
@@ -1013,23 +1019,36 @@ func make_theme() -> Theme:
 	return th
 
 
-func screen_panel(main := false) -> Panel:
+# ---------------------------------------------------------------- kit commun des écrans (tous sauf l'écran principal)
+# Un seul cadre, un seul bandeau de titre, une seule échelle de texte. Chaque écran a une couleur d'accent
+# (titre, jauges) prise dans ACC ; le reste est identique partout.
+const ACC := {"info": Color("5fd4ff"), "res": Color("ffb347"), "ok": Color("5ff0a0"), "alert": Color("ff3ad0")}
+const FS_TITLE := 14     # bandeau de titre
+const FS_LABEL := 15     # libellés et lignes de texte
+const FS_SMALL := 12     # libellés serrés, légendes
+const FS_VALUE := 44     # grande valeur (énergie, horloge…)
+const KIT_TOP := 40.0    # haut de la zone de contenu (sous le bandeau)
+const KIT_PAD := 12.0    # marges intérieures
+const HOME_W := 440.0    # largeur virtuelle d'un écran d'état à sa place (agrandi, il passe à 1:1)
+
+
+func screen_panel(main := false, accent: Color = ACC.info) -> Panel:
 	var p := Panel.new()
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = Color(0.02, 0.06, 0.11, 1.0) if not main else Color(0.01, 0.02, 0.04, 1.0)
 	sb.border_color = Color("1d4d70")
 	sb.set_border_width_all(2)
 	sb.set_corner_radius_all(5)
-	sb.shadow_color = Color(0.12, 0.5, 1.0, 0.12)
+	sb.shadow_color = Color(accent.r, accent.g, accent.b, 0.12)
 	sb.shadow_size = 0 if art_tex != null else 10
 	p.add_theme_stylebox_override("panel", sb)
 	p.mouse_filter = Control.MOUSE_FILTER_STOP if not main else Control.MOUSE_FILTER_IGNORE
 	return p
 
 
-func header(par: Control, text: String) -> Label:
+func header(par: Control, text: String, accent: Color = ACC.info) -> Label:
 	var hb := ColorRect.new()
-	hb.color = Color(0.37, 0.83, 1.0, 0.1)
+	hb.color = Color(accent.r, accent.g, accent.b, 0.1)
 	hb.position = Vector2(2, 2)
 	hb.size = Vector2(4000, 26)
 	hb.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -1037,11 +1056,51 @@ func header(par: Control, text: String) -> Label:
 	var l := Label.new()
 	l.text = text
 	l.position = Vector2(12, 5)
-	l.add_theme_color_override("font_color", CY)
-	l.add_theme_font_size_override("font_size", 14)
+	l.add_theme_color_override("font_color", accent)
+	l.add_theme_font_size_override("font_size", FS_TITLE)
 	par.add_child(l)
 	par.clip_contents = true
 	return l
+
+
+# zone de contenu d'un écran, sous le bandeau
+func kit_area(s: Vector2) -> Rect2:
+	return Rect2(KIT_PAD, KIT_TOP, s.x - KIT_PAD * 2.0, s.y - KIT_TOP - KIT_PAD)
+
+
+# ligne de texte ; renvoie le haut de la ligne suivante
+func kit_text(c: Control, x: float, y: float, t: String, fs: int, col: Color, wmax := -1.0) -> float:
+	var f := get_theme_default_font()
+	c.draw_string(f, Vector2(x, y + f.get_ascent(fs)), t, HORIZONTAL_ALIGNMENT_LEFT, wmax, fs, col)
+	return y + f.get_height(fs) + 4.0
+
+
+# grande valeur et sa légende ; renvoie le bas du bloc
+func kit_value(c: Control, x: float, y: float, value: String, sub: String, col: Color, fs := FS_VALUE) -> float:
+	y = kit_text(c, x, y, value, fs, col)
+	if sub != "":
+		y = kit_text(c, x, y - 4.0, sub, FS_LABEL, DIM)
+	return y + 8.0
+
+
+# jauges en rangées : items = [[libellé, fraction, couleur], …], réparties dans r
+func kit_gauges(c: Control, r: Rect2, items: Array) -> void:
+	var n := items.size()
+	if n == 0 or r.size.y <= 0.0:
+		return
+	var rh := minf(r.size.y / n, 56.0)
+	var fs := FS_LABEL if rh >= 26.0 else FS_SMALL
+	var lw := minf(r.size.x * 0.4, 240.0)
+	var bh := clampf(rh * 0.4, 6.0, 16.0)
+	var f := get_theme_default_font()
+	for i in n:
+		var it: Array = items[i]
+		var col: Color = it[2]
+		var cy := r.position.y + rh * (i + 0.5)
+		c.draw_string(f, Vector2(r.position.x, cy + f.get_ascent(fs) * 0.5 - 1.0), it[0], HORIZONTAL_ALIGNMENT_LEFT, lw - 8.0, fs, col)
+		var bar := Rect2(r.position.x + lw, cy - bh * 0.5, r.size.x - lw, bh)
+		c.draw_rect(bar, Color(col.r, col.g, col.b, 0.15))
+		c.draw_rect(Rect2(bar.position, Vector2(bar.size.x * clampf(it[1], 0.0, 1.0), bh)), col)
 
 
 func lbl(t := "", col := TXT, fs := 14) -> Label:
@@ -1308,155 +1367,136 @@ func build_right2() -> void:
 	vi.add_child(lbl_combat)
 
 
-# ---------------------------------------------------------------- petits moniteurs (sous l'écran principal) : contenu de taille fixe mis à l'échelle
-func small_screen(id: String, title: String, col: Color) -> Control:
-	var p := Panel.new()
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(col.r * 0.06, col.g * 0.06, col.b * 0.06, 1.0)
-	sb.border_color = col.darkened(0.4)
-	sb.set_border_width_all(3)
-	p.add_theme_stylebox_override("panel", sb)
+# ---------------------------------------------------------------- écrans d'état (petits moniteurs) : même kit que les grands écrans
+# Mise en page relative à la taille de l'écran : à sa place, l'écran est rendu en HOME_W de large puis réduit ;
+# agrandi, il est rendu à 1:1 comme les grands écrans (place_mon).
+func status_screen(id: String, title: String, accent: Color) -> Panel:
+	var p := screen_panel(false, accent)
 	p.theme = th_ui
-	p.size = SMALL_DESIGN
-	var l := lbl(title, col, 22)
-	l.position = Vector2(14, 8)
-	p.add_child(l)
+	header(p, title, accent)
 	add_monitor(id, title.split(" ")[0], p, true)
 	return p
 
 
+# écran d'état dessiné par draw_deco
+func deco_screen(id: String, title: String, accent: Color) -> void:
+	var p := status_screen(id, title, accent)
+	var c := Control.new()
+	c.set_anchors_preset(Control.PRESET_FULL_RECT)
+	c.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	c.draw.connect(func(): draw_deco(id, c, accent))
+	p.add_child(c)
+	deco[id] = c
+
+
+# écran d'état fait d'un texte qui défile (messages, pilote automatique)
+func text_screen(id: String, title: String, accent: Color) -> Label:
+	var p := status_screen(id, title, accent)
+	var l := lbl("", accent, FS_LABEL)
+	l.set_anchors_preset(Control.PRESET_FULL_RECT)
+	l.offset_left = KIT_PAD
+	l.offset_top = KIT_TOP
+	l.offset_right = -KIT_PAD
+	l.offset_bottom = -KIT_PAD
+	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	l.clip_text = true
+	p.add_child(l)
+	return l
+
+
 func build_small_screens() -> void:
-	var lg := small_screen("log", "MESSAGES", Color("5ff0a0"))
-	lbl_log = lbl("", Color("5ff0a0"), 17)
-	lbl_log.position = Vector2(14, 44)
-	lbl_log.size = Vector2(412, 260)
-	lbl_log.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	lg.add_child(lbl_log)
-	var bt := small_screen("bot", "PILOTE AUTOMATIQUE", Color("ffb347"))
-	lbl_bot = lbl("", Color("ffb347"), 19)
-	lbl_bot.position = Vector2(14, 50)
-	lbl_bot.size = Vector2(412, 250)
-	lbl_bot.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	bt.add_child(lbl_bot)
-	for id in ["sys", "energy", "alert"]:
-		var col: Color = {"sys": CY, "energy": CY, "alert": Color("ff3ad0")}[id]
-		var title: String = {"sys": "SYSTÈMES DE LA COLONIE", "energy": "ÉNERGIE · BOUCLIER", "alert": "ALERTES DE LA STATION"}[id]
-		var p := small_screen(id, title, col)
-		var c := Control.new()
-		c.set_anchors_preset(Control.PRESET_FULL_RECT)
-		c.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		c.draw.connect(func(): draw_deco(id, c, col))
-		p.add_child(c)
-		deco[id] = c
+	lbl_log = text_screen("log", "MESSAGES", ACC.ok)
+	lbl_bot = text_screen("bot", "PILOTE AUTOMATIQUE", ACC.res)
+	deco_screen("sys", "SYSTÈMES DE LA COLONIE", ACC.info)
+	deco_screen("energy", "ÉNERGIE · BOUCLIER", ACC.info)
+	deco_screen("alert", "ALERTES DE LA STATION", ACC.alert)
 	# illustration : écrans supplémentaires sur les autres moniteurs du dessin (seulement s'ils sont décrits dans cockpit.json)
-	var extra := [["data", "STOCKS DE LA COLONIE", AMB], ["net", "LIAISON SUBSPATIALE", OK], ["scan", "BALAYAGE", CY],
-		["pop", "POPULATION · SANTÉ", CY], ["time", "HORLOGE DE MISSION", Color("e8e8f0")], ["fleet", "FLOTTES", OK],
-		["kron", "TERRE · ARCHE", AMB], ["cons", "TÉLÉSCRIPTEUR", OK]]
+	var extra := [["data", "STOCKS DE LA COLONIE", ACC.res], ["net", "LIAISON SUBSPATIALE", ACC.ok], ["scan", "BALAYAGE", ACC.info],
+		["pop", "POPULATION · SANTÉ", ACC.info], ["time", "HORLOGE DE MISSION", ACC.info], ["fleet", "FLOTTES", ACC.ok],
+		["kron", "TERRE · ARCHE", ACC.res], ["cons", "TÉLÉSCRIPTEUR", ACC.ok]]
 	for d in extra:
-		var xid: String = d[0]
-		if art_tex == null or not art_map.has(xid):
-			continue
-		var xcol: Color = d[2]
-		var xp := small_screen(xid, d[1], xcol)
-		var xc := Control.new()
-		xc.set_anchors_preset(Control.PRESET_FULL_RECT)
-		xc.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		xc.draw.connect(func(): draw_deco(xid, xc, xcol))
-		xp.add_child(xc)
-		deco[xid] = xc
+		if art_tex != null and art_map.has(d[0]):
+			deco_screen(d[0], d[1], d[2])
 
 
 func draw_deco(id: String, c: Control, col: Color) -> void:
-	var s := c.size
+	var a := kit_area(c.size)
+	var x := a.position.x
+	var y := a.position.y
 	var f := get_theme_default_font()
 	var tt := Time.get_ticks_msec() / 1000.0
 	match id:
 		"sys":
-			var items := [["RÉACTEUR He-3", C.eff], ["BOUCLIER", w.SHD_E / 100.0], ["MORAL", C.morale / 100.0], ["STOCKAGE FER", C.stock.fer / maxf(1.0, C.caps().fer)], ["RECHERCHE", (C.tech_p / C.TECH[C.tech_cur].time) if C.tech_cur != "" else 0.0]]
-			for i in items.size():
-				var y := 52.0 + i * 52.0
-				c.draw_string(f, Vector2(18, y), items[i][0], HORIZONTAL_ALIGNMENT_LEFT, -1, 20, col)
-				c.draw_rect(Rect2(260, y - 18, s.x - 290, 18), Color(col.r, col.g, col.b, 0.15))
-				c.draw_rect(Rect2(260, y - 18, (s.x - 290) * clampf(items[i][1], 0.0, 1.0), 18), col)
-		"lefttop", "net":
-			for k in 3:
-				var pts := PackedVector2Array()
-				for i in 60:
-					var x := 14.0 + i * (s.x - 28) / 59.0
-					pts.append(Vector2(x, s.y * (0.35 + 0.2 * k) + sin(i * 0.4 + tt * (2.0 + k) + k) * 18.0 * (0.5 + 0.5 * sin(tt * 0.7 + i * 0.1))))
-				c.draw_polyline(pts, Color(col.r, col.g, col.b, 0.9 - k * 0.25), 2.0)
-			c.draw_string(f, Vector2(18, s.y - 16), "LIAISON KRONOS · %d paquets/s" % int(800 + 200 * sin(tt)), HORIZONTAL_ALIGNMENT_LEFT, -1, 18, col)
+			kit_gauges(c, a, [["RÉACTEUR He-3", C.eff, col], ["BOUCLIER", w.SHD_E / 100.0, col], ["MORAL", C.morale / 100.0, col],
+				["STOCKAGE FER", C.stock.fer / maxf(1.0, C.caps().fer), col],
+				["RECHERCHE", (C.tech_p / C.TECH[C.tech_cur].time) if C.tech_cur != "" else 0.0, col]])
 		"data":
-			var ks: Array = C.RES.keys()
-			var bh: float = (s.y - 60.0) / ks.size()
-			for i in ks.size():
-				var k: String = ks[i]
-				var y: float = 50.0 + i * bh
-				var fr: float = clampf(C.stock.get(k, 0.0) / maxf(1.0, C.caps().get(k, 1.0)), 0.0, 1.0)
-				c.draw_string(f, Vector2(14, y + bh * 0.7), String(C.RES[k].name).substr(0, 12), HORIZONTAL_ALIGNMENT_LEFT, -1, 15, col)
-				c.draw_rect(Rect2(180, y + 4, s.x - 200, bh - 8), Color(col.r, col.g, col.b, 0.15))
-				c.draw_rect(Rect2(180, y + 4, (s.x - 200) * fr, bh - 8), col)
-		"scan":
-			var ctr := Vector2(s.x * 0.5, s.y * 0.56)
-			var rr := minf(s.x, s.y) * 0.36
-			for k in 3:
-				c.draw_arc(ctr, rr * (k + 1) / 3.0, 0, TAU, 40, Color(col.r, col.g, col.b, 0.35), 2.0)
-			var an := tt * 2.0
-			for k in 12:
-				c.draw_line(ctr, ctr + Vector2.from_angle(an - k * 0.05) * rr, Color(col.r, col.g, col.b, 0.5 - k * 0.04), 3.0)
-			var n: int = S.emoves.size()
-			for k in n:
-				c.draw_circle(ctr + Vector2.from_angle(k * 2.1 + 0.5) * rr * 0.7, 6.0, BAD)
-			c.draw_string(f, Vector2(14, s.y - 12), "%d contact(s) hostile(s)" % n, HORIZONTAL_ALIGNMENT_LEFT, -1, 18, BAD if n > 0 else col)
+			var items := []
+			for k in C.RES:
+				items.append([C.RES[k].name, C.stock.get(k, 0.0) / maxf(1.0, C.caps().get(k, 1.0)), col])
+			kit_gauges(c, a, items)
+		"energy":
+			var e: Dictionary = C.energy
+			y = kit_value(c, x, y, "%d / %d" % [int(e.p), int(e.c)], "produits / demandés", BAD if e.c > e.p else col)
+			var down: bool = w.SHD_DOWN > 0.0
+			kit_gauges(c, Rect2(x, y, a.size.x, minf(56.0, a.end.y - y)), [["BOUCLIER " + ("EFFONDRÉ" if down else "%d %%" % int(w.SHD_E)), w.SHD_E / 100.0, BAD if down else col]])
 		"pop":
-			c.draw_string(f, Vector2(18, 80), "%d habitants" % int(C.pop), HORIZONTAL_ALIGNMENT_LEFT, -1, 34, col)
-			var its := [["SANTÉ", Sv.health / 100.0], ["MORAL", C.morale / 100.0], ["POLLUTION", clampf(C.pollution / 50.0, 0.0, 1.0)]]
-			for i in its.size():
-				var y := 140.0 + i * 52.0
-				c.draw_string(f, Vector2(18, y), its[i][0], HORIZONTAL_ALIGNMENT_LEFT, -1, 20, col)
-				c.draw_rect(Rect2(170, y - 18, s.x - 190, 18), Color(col.r, col.g, col.b, 0.15))
-				c.draw_rect(Rect2(170, y - 18, (s.x - 190) * clampf(its[i][1], 0.0, 1.0), 18), BAD if i == 2 else col)
+			y = kit_value(c, x, y, "%d" % int(C.pop), "habitants", col)
+			kit_gauges(c, Rect2(x, y, a.size.x, a.end.y - y), [["SANTÉ", Sv.health / 100.0, col], ["MORAL", C.morale / 100.0, col],
+				["POLLUTION", C.pollution / 50.0, BAD]])
 		"time":
 			var gt: float = w.war.time
-			c.draw_string(f, Vector2(18, 140), "%02d:%02d:%02d" % [int(gt / 3600.0), int(gt / 60.0) % 60, int(gt) % 60], HORIZONTAL_ALIGNMENT_LEFT, -1, 72, col)
-			var spd: String = "PAUSE" if w.paused else "VITESSE ×%s" % str(w.tscale)
-			c.draw_string(f, Vector2(18, 210), spd, HORIZONTAL_ALIGNMENT_LEFT, -1, 26, AMB if w.paused else DIM)
+			kit_value(c, x, y, "%02d:%02d:%02d" % [int(gt / 3600.0), int(gt / 60.0) % 60, int(gt) % 60],
+				"EN PAUSE" if w.paused else "vitesse ×%s" % str(w.tscale), AMB if w.paused else col)
 		"fleet":
 			var nh := 0
 			for u in S.hangar:
 				nh += int(S.hangar[u])
-			c.draw_string(f, Vector2(18, 90), "%d flotte(s)" % S.fleets.size(), HORIZONTAL_ALIGNMENT_LEFT, -1, 30, col)
-			c.draw_string(f, Vector2(18, 140), "%d vaisseau(x) au hangar" % nh, HORIZONTAL_ALIGNMENT_LEFT, -1, 22, col)
-			c.draw_string(f, Vector2(18, 190), "%d colonie(s)" % S.col.size(), HORIZONTAL_ALIGNMENT_LEFT, -1, 22, col)
-			c.draw_string(f, Vector2(18, 240), "%d raid(s) pirate(s) en route" % S.emoves.size(), HORIZONTAL_ALIGNMENT_LEFT, -1, 22, BAD if S.emoves.size() > 0 else DIM)
+			y = kit_value(c, x, y, "%d" % S.fleets.size(), "flotte(s)", col)
+			y = kit_text(c, x, y, "%d vaisseau(x) au hangar" % nh, FS_LABEL, TXT)
+			y = kit_text(c, x, y, "%d colonie(s)" % S.col.size(), FS_LABEL, TXT)
+			kit_text(c, x, y, "%d raid(s) pirate(s) en route" % S.emoves.size(), FS_LABEL, BAD if S.emoves.size() > 0 else DIM)
 		"kron":
-			c.draw_string(f, Vector2(18, 80), "Latence : %.1f h-lumière" % Sv.latency_h, HORIZONTAL_ALIGNMENT_LEFT, -1, 20, col)
-			c.draw_string(f, Vector2(18, 120), "Réputation Terre : %d" % Sv.rep, HORIZONTAL_ALIGNMENT_LEFT, -1, 20, col)
-			c.draw_string(f, Vector2(18, 180), "ARCHE %d %%" % int(Sv.ark), HORIZONTAL_ALIGNMENT_LEFT, -1, 30, col)
-			c.draw_rect(Rect2(18, 200, s.x - 36, 18), Color(col.r, col.g, col.b, 0.15))
-			c.draw_rect(Rect2(18, 200, (s.x - 36) * Sv.ark / 100.0, 18), col)
+			y = kit_value(c, x, y, "%d %%" % int(Sv.ark), "construction de l’arche", col)
+			kit_gauges(c, Rect2(x, y, a.size.x, minf(40.0, a.end.y - y)), [["ARCHE", Sv.ark / 100.0, col]])
+			y += 48.0
+			y = kit_text(c, x, y, "Latence : %.1f h-lumière" % Sv.latency_h, FS_LABEL, TXT)
+			kit_text(c, x, y, "Réputation Terre : %d" % Sv.rep, FS_LABEL, TXT)
+		"alert":
+			var al: String = S.alert_txt()
+			if al == "":
+				y = kit_text(c, x, y, "SURVEILLANCE", FS_VALUE * 2 / 3, col)
+				kit_text(c, x, y, "aucune menace immédiate", FS_LABEL, DIM)
+			else:
+				if fmod(tt, 1.0) < 0.6:
+					kit_text(c, x, y, "ALERTE ACTIVE", FS_VALUE * 2 / 3, BAD)
+				y += f.get_height(FS_VALUE * 2 / 3) + 8.0
+				c.draw_multiline_string(f, Vector2(x, y + f.get_ascent(FS_LABEL)), al, HORIZONTAL_ALIGNMENT_LEFT, a.size.x, FS_LABEL, -1, col)
+		"net":
+			var gh := a.size.y - f.get_height(FS_LABEL) - 8.0
+			for k in 3:
+				var pts := PackedVector2Array()
+				for i in 60:
+					var px := x + i * a.size.x / 59.0
+					pts.append(Vector2(px, y + gh * (0.25 + 0.25 * k) + sin(i * 0.4 + tt * (2.0 + k) + k) * gh * 0.1 * (0.5 + 0.5 * sin(tt * 0.7 + i * 0.1))))
+				c.draw_polyline(pts, Color(col.r, col.g, col.b, 0.9 - k * 0.25), 2.0)
+			kit_text(c, x, a.end.y - f.get_height(FS_LABEL), "LIAISON KRONOS · %d paquets/s" % int(800 + 200 * sin(tt)), FS_LABEL, col)
+		"scan":
+			var n: int = S.emoves.size()
+			var th := f.get_height(FS_LABEL) + 8.0
+			var ctr := Vector2(a.get_center().x, y + (a.size.y - th) * 0.5)
+			var rr := minf(a.size.x, a.size.y - th) * 0.45
+			for k in 3:
+				c.draw_arc(ctr, rr * (k + 1) / 3.0, 0, TAU, 40, Color(col.r, col.g, col.b, 0.35), 2.0)
+			for k in 12:
+				c.draw_line(ctr, ctr + Vector2.from_angle(tt * 2.0 - k * 0.05) * rr, Color(col.r, col.g, col.b, 0.5 - k * 0.04), 3.0)
+			for k in n:
+				c.draw_circle(ctr + Vector2.from_angle(k * 2.1 + 0.5) * rr * 0.7, 5.0, BAD)
+			kit_text(c, x, a.end.y - th + 8.0, "%d contact(s) hostile(s)" % n, FS_LABEL, BAD if n > 0 else col)
 		"cons":
 			var line: String = C.log[0] if C.log.size() > 0 else "K-240 · EN LIGNE"
-			var tw: float = f.get_string_size(line, HORIZONTAL_ALIGNMENT_LEFT, -1, 40).x + s.x
-			var x: float = s.x - fmod(tt * 120.0, tw)
-			c.draw_string(f, Vector2(x, s.y * 0.66), line, HORIZONTAL_ALIGNMENT_LEFT, -1, 40, col)
-		"energy":
-			var e: Dictionary = C.energy
-			c.draw_string(f, Vector2(18, 70), "%d / %d" % [int(e.p), int(e.c)], HORIZONTAL_ALIGNMENT_LEFT, -1, 44, BAD if e.c > e.p else col)
-			c.draw_string(f, Vector2(18, 104), "produits / demandés", HORIZONTAL_ALIGNMENT_LEFT, -1, 18, DIM)
-			var sh: String = "EFFONDRÉ" if w.SHD_DOWN > 0.0 else "%d %%" % int(w.SHD_E)
-			c.draw_string(f, Vector2(18, 170), "BOUCLIER " + sh, HORIZONTAL_ALIGNMENT_LEFT, -1, 26, BAD if w.SHD_DOWN > 0.0 else col)
-			c.draw_rect(Rect2(18, 190, (s.x - 36) * w.SHD_E / 100.0, 14), col)
-		"alert":
-			var a: String = S.alert_txt()
-			var blink := fmod(tt, 1.0) < 0.6
-			if a == "":
-				c.draw_string(f, Vector2(18, 90), "STATION · SURVEILLANCE", HORIZONTAL_ALIGNMENT_LEFT, -1, 26, col)
-				c.draw_string(f, Vector2(18, 130), "aucune menace immédiate", HORIZONTAL_ALIGNMENT_LEFT, -1, 20, DIM)
-			else:
-				if blink:
-					c.draw_string(f, Vector2(18, 86), "ALERTE ACTIVE", HORIZONTAL_ALIGNMENT_LEFT, -1, 34, Color("ff5a5a"))
-				c.draw_multiline_string(f, Vector2(18, 130), a, HORIZONTAL_ALIGNMENT_LEFT, s.x - 36, 20, -1, col)
+			var tw: float = f.get_string_size(line, HORIZONTAL_ALIGNMENT_LEFT, -1, FS_VALUE).x + a.size.x
+			kit_text(c, a.end.x - fmod(tt * 120.0, tw), a.get_center().y - f.get_height(FS_VALUE) * 0.5, line, FS_VALUE, col)
 
 
 func set_speed(s: float) -> void:
